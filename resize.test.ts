@@ -85,10 +85,7 @@ describe("toy nested compound resize", () => {
 
     DEMO_COMPOUND.beginChildDrag(cy);
     cy.getElementById("wp-invoicing").position({ x: 25, y: -15 });
-    DEMO_COMPOUND.syncChildDragByDelta({
-      graph: draggedDelta,
-      rendered: draggedDelta,
-    });
+    DEMO_COMPOUND.syncChildDragByDelta(draggedDelta);
     const during = DEMO_COMPOUND.liveSnapshot(cy);
 
     expect(during.parent.center.x).toBeCloseTo(before.parent.center.x, 3);
@@ -141,8 +138,11 @@ describe("toy nested compound resize", () => {
 
     DEMO_COMPOUND.beginChildDrag(cy);
     const during = DEMO_COMPOUND.liveSnapshot(cy);
+    const visual = DEMO_COMPOUND.childDragVisual(cy);
 
     expect(during.children["wp-pdf-export"].absolute.x).toBeCloseTo(childAbsolute.x, 3);
     expect(during.children["wp-pdf-export"].absolute.y).toBeCloseTo(childAbsolute.y, 3);
+    expect(visual?.renderedX).toBeCloseTo(cy.getElementById("wp-pdf-export").renderedPosition().x, 3);
+    expect(visual?.renderedY).toBeCloseTo(cy.getElementById("wp-pdf-export").renderedPosition().y, 3);
   });
 });

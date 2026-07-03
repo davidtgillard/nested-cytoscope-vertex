@@ -292,14 +292,8 @@ export function App() {
         }
         domEvent.preventDefault();
         compound.syncChildDragByDelta({
-          graph: {
-            x: (nextClientPoint.clientX - startClientPoint.clientX) / cy.zoom(),
-            y: (nextClientPoint.clientY - startClientPoint.clientY) / cy.zoom(),
-          },
-          rendered: {
-            x: nextClientPoint.clientX - startClientPoint.clientX,
-            y: nextClientPoint.clientY - startClientPoint.clientY,
-          },
+          x: (nextClientPoint.clientX - startClientPoint.clientX) / cy.zoom(),
+          y: (nextClientPoint.clientY - startClientPoint.clientY) / cy.zoom(),
         });
         refreshDebug();
       };

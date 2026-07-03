@@ -88,8 +88,7 @@ export class GraphParent {
         startModel: WorkPackageLayoutModel;
         parentAbsolute: { x: number; y: number };
         startChildAbsolute: { x: number; y: number };
-        startRenderedCenter: { x: number; y: number };
-        currentRenderedCenter: { x: number; y: number };
+        renderedOffset: { x: number; y: number };
       }
     | null = null;
 
@@ -241,12 +240,13 @@ export class GraphParent {
 
   childDragVisual(cy: Core): ChildDragVisual | null {
     const session = this.childDragSession;
-    if (!this.childDragActive || !session) {
+    if (!this.childDragActive || !this.model || !session) {
       return null;
     }
+    const childAbsolute = absoluteCenter(this.model, this.child.id);
     return {
-      renderedX: session.currentRenderedCenter.x,
-      renderedY: session.currentRenderedCenter.y,
+      renderedX: childAbsolute.x * cy.zoom() + cy.pan().x + session.renderedOffset.x,
+      renderedY: childAbsolute.y * cy.zoom() + cy.pan().y + session.renderedOffset.y,
       zoom: cy.zoom(),
       label: this.child.label,
       color: this.child.color,
@@ -273,24 +273,17 @@ export class GraphParent {
    * compound coordinates. During the gesture we only update the in-memory model; Cytoscape
    * is updated once at the end of the drag.
    */
-  syncChildDragByDelta(delta: {
-    graph: { x: number; y: number };
-    rendered: { x: number; y: number };
-  }): void {
+  syncChildDragByDelta(delta: { x: number; y: number }): void {
     const session = this.childDragSession;
     if (!session || !this.childDragActive) {
       return;
     }
 
     const nextModel = moveChild(session.startModel, this.child.id, {
-      x: session.startChildAbsolute.x + delta.graph.x - session.parentAbsolute.x,
-      y: session.startChildAbsolute.y + delta.graph.y - session.parentAbsolute.y,
+      x: session.startChildAbsolute.x + delta.x - session.parentAbsolute.x,
+      y: session.startChildAbsolute.y + delta.y - session.parentAbsolute.y,
     });
     this.model = nextModel;
-    session.currentRenderedCenter = {
-      x: session.startRenderedCenter.x + delta.rendered.x,
-      y: session.startRenderedCenter.y + delta.rendered.y,
-    };
   }
 
   isChildDragInProgress(): boolean {
@@ -305,14 +298,18 @@ export class GraphParent {
     }
 
     const childAbsolute = compoundAbsolutePosition(cyChild);
-    const childRendered = cyChild.renderedPosition();
+    const renderedCenter = cyChild.renderedPosition();
+    const pan = cy.pan();
+    const zoom = cy.zoom();
     this.childDragActive = true;
     this.childDragSession = {
       startModel: cloneLayoutModel(model),
       parentAbsolute: absoluteCenter(model, this.id),
       startChildAbsolute: childAbsolute,
-      startRenderedCenter: { x: childRendered.x, y: childRendered.y },
-      currentRenderedCenter: { x: childRendered.x, y: childRendered.y },
+      renderedOffset: {
+        x: renderedCenter.x - (childAbsolute.x * zoom + pan.x),
+        y: renderedCenter.y - (childAbsolute.y * zoom + pan.y),
+      },
     };
 
     const parent = cy.getElementById(this.id);
