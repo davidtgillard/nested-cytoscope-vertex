@@ -1,4 +1,4 @@
-import type { Core } from "cytoscape";
+import type { Core, EventObject } from "cytoscape";
 import cytoscape from "cytoscape";
 import {
   applyLayoutModelToCy,
@@ -28,6 +28,14 @@ import {
 } from "./layout-model";
 
 export type Scenario = "measured" | "preset-sized";
+
+export interface ChildDragVisual {
+  renderedX: number;
+  renderedY: number;
+  zoom: number;
+  label: string;
+  color: string;
+}
 
 const PRESET_LAYOUT = {
   parent: { x: 0, y: 0, w: 420, h: 280 },
@@ -75,6 +83,15 @@ export class GraphParent {
   private model: WorkPackageLayoutModel | null = null;
   private syncMode: SyncMode = "model";
   private childDragActive = false;
+  private childDragSession:
+    | {
+        startModel: WorkPackageLayoutModel;
+        parentAbsolute: { x: number; y: number };
+        startChildAbsolute: { x: number; y: number };
+        startRenderedCenter: { x: number; y: number };
+        currentRenderedCenter: { x: number; y: number };
+      }
+    | null = null;
 
   private constructor(
     readonly id: string,
@@ -152,14 +169,18 @@ export class GraphParent {
       cy.getElementById(this.id).lock();
     }
 
-    this.model = layoutModelFromCy(cy, this.layoutInputs);
+    this.syncModelFromCy(cy);
     this.enableDirectDragging(cy);
+    this.configureDetachedChildDrag(cy);
     return snapshotGraphState(cy, this.id, this.childIds);
   }
 
   ensureModelFromCy(cy: Core): WorkPackageLayoutModel {
     if (!this.model || !compositeOuterBox(this.model, this.id)) {
-      this.model = layoutModelFromCy(cy, this.layoutInputs);
+      this.syncModelFromCy(cy);
+    }
+    if (!this.model) {
+      throw new Error("layout model not initialized");
     }
     return this.model;
   }
@@ -189,6 +210,49 @@ export class GraphParent {
     return snapshotGraphState(cy, this.id, this.childIds);
   }
 
+  liveSnapshot(cy: Core): GraphSnapshot {
+    if (!this.childDragActive || !this.model) {
+      return this.snapshot(cy);
+    }
+
+    const parent = this.model.nodes.get(this.id);
+    const child = this.model.nodes.get(this.child.id);
+    const box = compositeOuterBox(this.model, this.id);
+    if (!parent?.size || !child || !box) {
+      return this.snapshot(cy);
+    }
+
+    return {
+      parent: {
+        center: absoluteCenter(this.model, this.id),
+        relative: { ...parent.center },
+        w: parent.size.w,
+        h: parent.size.h,
+        box,
+      },
+      children: {
+        [this.child.id]: {
+          absolute: absoluteCenter(this.model, this.child.id),
+          relative: { ...child.center },
+        },
+      },
+    };
+  }
+
+  childDragVisual(cy: Core): ChildDragVisual | null {
+    const session = this.childDragSession;
+    if (!this.childDragActive || !session) {
+      return null;
+    }
+    return {
+      renderedX: session.currentRenderedCenter.x,
+      renderedY: session.currentRenderedCenter.y,
+      zoom: cy.zoom(),
+      label: this.child.label,
+      color: this.child.color,
+    };
+  }
+
   /** Resize the compound from a corner drag in model coordinates. */
   resizeFromCorner(corner: ResizeCorner, dxModel: number, dyModel: number, startModel: WorkPackageLayoutModel): void {
     this.model = resizeComposite(startModel, this.id, corner, dxModel, dyModel);
@@ -199,42 +263,67 @@ export class GraphParent {
       return;
     }
     applyLayoutModelToCy(cy, this.model, this.syncMode);
+    this.restoreChildVisibility(cy);
     this.enableDirectDragging(cy);
+    this.configureDetachedChildDrag(cy);
   }
 
   /**
-   * While the user drags the child in Cytoscape, only re-pin the parent's center and
-   * extents from the model. Do not rewrite the child position — that fights the drag.
+   * Drive child dragging from a dedicated drag session rather than Cytoscape's transient
+   * compound coordinates. During the gesture we only update the in-memory model; Cytoscape
+   * is updated once at the end of the drag.
    */
-  repinDuringChildDrag(cy: Core): void {
-    const model = this.model;
-    if (!model || !this.childDragActive) {
+  syncChildDragByDelta(delta: {
+    graph: { x: number; y: number };
+    rendered: { x: number; y: number };
+  }): void {
+    const session = this.childDragSession;
+    if (!session || !this.childDragActive) {
       return;
     }
 
-    const layoutNode = model.nodes.get(this.id);
-    if (!layoutNode?.size) {
-      return;
-    }
-
-    const cyParent = cy.getElementById(this.id);
-    if (cyParent.empty()) {
-      return;
-    }
-
-    cy.batch(() => {
-      cyParent.unlock();
-      cyParent.data("compoundWidth", layoutNode.size!.w);
-      cyParent.data("compoundHeight", layoutNode.size!.h);
-      cyParent.position({ x: layoutNode.center.x, y: layoutNode.center.y });
-      if (cyParent.isParent() && cyParent.children().length > 0) {
-        cyParent.lock();
-      }
+    const nextModel = moveChild(session.startModel, this.child.id, {
+      x: session.startChildAbsolute.x + delta.graph.x - session.parentAbsolute.x,
+      y: session.startChildAbsolute.y + delta.graph.y - session.parentAbsolute.y,
     });
+    this.model = nextModel;
+    session.currentRenderedCenter = {
+      x: session.startRenderedCenter.x + delta.rendered.x,
+      y: session.startRenderedCenter.y + delta.rendered.y,
+    };
   }
 
-  beginChildDrag(): void {
+  isChildDragInProgress(): boolean {
+    return this.childDragActive;
+  }
+
+  beginChildDrag(cy: Core): void {
+    const model = this.syncModelFromCy(cy);
+    const cyChild = cy.getElementById(this.child.id);
+    if (cyChild.empty()) {
+      return;
+    }
+
+    const childAbsolute = compoundAbsolutePosition(cyChild);
+    const childRendered = cyChild.renderedPosition();
     this.childDragActive = true;
+    this.childDragSession = {
+      startModel: cloneLayoutModel(model),
+      parentAbsolute: absoluteCenter(model, this.id),
+      startChildAbsolute: childAbsolute,
+      startRenderedCenter: { x: childRendered.x, y: childRendered.y },
+      currentRenderedCenter: { x: childRendered.x, y: childRendered.y },
+    };
+
+    const parent = cy.getElementById(this.id);
+    const child = cy.getElementById(this.child.id);
+    if (parent.empty() || child.empty()) {
+      return;
+    }
+    child.style("opacity", 0);
+    child.style("events", "no");
+    parent.ungrabify();
+    parent.lock();
   }
 
   /** Commit the dragged child position into the model and sync once. */
@@ -242,23 +331,15 @@ export class GraphParent {
     const model = this.model;
     if (!model) {
       this.childDragActive = false;
+      this.childDragSession = null;
+      this.restoreChildVisibility(cy);
+      this.enableDirectDragging(cy);
+      this.configureDetachedChildDrag(cy);
       return;
     }
-
-    const cyChild = cy.getElementById(this.child.id);
-    if (cyChild.empty()) {
-      this.childDragActive = false;
-      return;
-    }
-
-    const childAbs = compoundAbsolutePosition(cyChild);
-    const parentAbs = absoluteCenter(model, this.id);
-    this.model = moveChild(model, this.child.id, {
-      x: childAbs.x - parentAbs.x,
-      y: childAbs.y - parentAbs.y,
-    });
 
     this.childDragActive = false;
+    this.childDragSession = null;
     this.syncToCy(cy);
   }
 
@@ -280,17 +361,26 @@ export class GraphParent {
     cy: Core,
     callbacks: { onGrab?: (snap: GraphSnapshot) => void; onChange?: () => void },
   ): void {
-    const onGrab = () => {
+    const onGrab = (event: EventObject) => {
+      if (event.target.id() !== this.id || this.childDragActive) {
+        return;
+      }
       this.syncParentDragFromCy(cy);
       callbacks.onGrab?.(this.snapshot(cy));
     };
 
-    const onDrag = () => {
+    const onDrag = (event: EventObject) => {
+      if (event.target.id() !== this.id || this.childDragActive) {
+        return;
+      }
       this.syncParentDragFromCy(cy);
       callbacks.onChange?.();
     };
 
-    const onFree = () => {
+    const onFree = (event: EventObject) => {
+      if (event.target.id() !== this.id || this.childDragActive) {
+        return;
+      }
       this.syncParentDragFromCy(cy);
       callbacks.onChange?.();
     };
@@ -298,30 +388,6 @@ export class GraphParent {
     cy.on("grab", `node#${this.id}`, onGrab);
     cy.on("drag", `node#${this.id}`, onDrag);
     cy.on("free", `node#${this.id}`, onFree);
-  }
-
-  attachChildDragHandlers(
-    cy: Core,
-    callbacks: { onGrab?: (snap: GraphSnapshot) => void; onChange?: () => void },
-  ): void {
-    const onGrab = () => {
-      this.beginChildDrag();
-      callbacks.onGrab?.(this.snapshot(cy));
-    };
-
-    const onDrag = () => {
-      this.repinDuringChildDrag(cy);
-      callbacks.onChange?.();
-    };
-
-    const onFree = () => {
-      this.finishChildDrag(cy);
-      callbacks.onChange?.();
-    };
-
-    cy.on("grab", `node#${this.child.id}`, onGrab);
-    cy.on("drag", `node#${this.child.id}`, onDrag);
-    cy.on("free", `node#${this.child.id}`, onFree);
   }
 
   private measureLikeBellman(cy: Core, preserveChildAbsolute: boolean): void {
@@ -357,6 +423,27 @@ export class GraphParent {
     }
     parent.unlock();
     parent.grabify();
+  }
+
+  private configureDetachedChildDrag(cy: Core): void {
+    const child = cy.getElementById(this.child.id);
+    if (child.empty()) {
+      return;
+    }
+    child.ungrabify();
+  }
+
+  private restoreChildVisibility(cy: Core): void {
+    const child = cy.getElementById(this.child.id);
+    if (child.empty()) {
+      return;
+    }
+    child.removeStyle();
+  }
+
+  private syncModelFromCy(cy: Core): WorkPackageLayoutModel {
+    this.model = layoutModelFromCy(cy, this.layoutInputs);
+    return this.model;
   }
 }
 

@@ -79,16 +79,24 @@ describe("toy nested compound resize", () => {
     });
 
     const before = DEMO_COMPOUND.initializeFromCy(cy, "preset-sized", true);
-    cy.getElementById("wp-pdf-export").position({ x: 60, y: 40 });
+    const startAbsolute = compoundAbsolutePosition(cy.getElementById("wp-pdf-export"));
+    const draggedDelta = { x: 60, y: 40 };
+    const draggedAbsolute = { x: startAbsolute.x + draggedDelta.x, y: startAbsolute.y + draggedDelta.y };
 
-    DEMO_COMPOUND.beginChildDrag();
-    DEMO_COMPOUND.repinDuringChildDrag(cy);
-    const during = DEMO_COMPOUND.snapshot(cy);
+    DEMO_COMPOUND.beginChildDrag(cy);
+    cy.getElementById("wp-invoicing").position({ x: 25, y: -15 });
+    DEMO_COMPOUND.syncChildDragByDelta({
+      graph: draggedDelta,
+      rendered: draggedDelta,
+    });
+    const during = DEMO_COMPOUND.liveSnapshot(cy);
 
     expect(during.parent.center.x).toBeCloseTo(before.parent.center.x, 3);
     expect(during.parent.center.y).toBeCloseTo(before.parent.center.y, 3);
     expect(during.parent.w).toBeCloseTo(before.parent.w, 3);
     expect(during.parent.h).toBeCloseTo(before.parent.h, 3);
+    expect(during.children["wp-pdf-export"].absolute.x).toBeCloseTo(draggedAbsolute.x, 3);
+    expect(during.children["wp-pdf-export"].absolute.y).toBeCloseTo(draggedAbsolute.y, 3);
 
     DEMO_COMPOUND.finishChildDrag(cy);
     const after = DEMO_COMPOUND.snapshot(cy);
@@ -115,5 +123,26 @@ describe("toy nested compound resize", () => {
 
     expect(DEMO_COMPOUND.getModel()?.nodes.get("wp-invoicing")?.center.x).toBeCloseTo(55, 3);
     expect(DEMO_COMPOUND.getModel()?.nodes.get("wp-invoicing")?.center.y).toBeCloseTo(-25, 3);
+  });
+
+  it("beginChildDrag resyncs from Cytoscape before showing the drag ghost", () => {
+    const cy = cytoscape({
+      headless: true,
+      style: CYTOSCAPE_STYLESHEET,
+      elements: DEMO_COMPOUND.buildElements("preset-sized"),
+    });
+
+    DEMO_COMPOUND.initializeFromCy(cy, "preset-sized", true);
+
+    // Simulate the scene moving ahead of the cached model; the detached drag should
+    // still start from the node's real Cytoscape position rather than the stale model.
+    cy.getElementById("wp-pdf-export").position({ x: 70, y: 35 });
+    const childAbsolute = compoundAbsolutePosition(cy.getElementById("wp-pdf-export"));
+
+    DEMO_COMPOUND.beginChildDrag(cy);
+    const during = DEMO_COMPOUND.liveSnapshot(cy);
+
+    expect(during.children["wp-pdf-export"].absolute.x).toBeCloseTo(childAbsolute.x, 3);
+    expect(during.children["wp-pdf-export"].absolute.y).toBeCloseTo(childAbsolute.y, 3);
   });
 });

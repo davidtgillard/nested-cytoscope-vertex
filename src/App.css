@@ -64,6 +64,46 @@ body {
   inset: 0;
 }
 
+.child-drag-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  cursor: grabbing;
+  touch-action: none;
+  user-select: none;
+}
+
+.child-drag-ghost {
+  position: absolute;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+
+.child-drag-node {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  transform-origin: center center;
+}
+
+.child-drag-label {
+  position: absolute;
+  left: 0;
+  font-size: 11px;
+  color: #e2e8f0;
+  transform-origin: top center;
+  text-shadow:
+    0 0 1px #0f172a,
+    0 0 1px #0f172a,
+    0 0 1px #0f172a,
+    0 0 1px #0f172a;
+  white-space: nowrap;
+}
+
 .compound-resize-handle {
   position: absolute;
   z-index: 20;

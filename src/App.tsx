@@ -1,4 +1,4 @@
-import { type Core } from "cytoscape";
+import { type Core, type EventObject } from "cytoscape";
 import {
   useCallback,
   useEffect,
@@ -10,6 +10,7 @@ import {
 import { type SyncMode } from "./lib/cytoscape-sync";
 import { snapshotDelta, type GraphSnapshot } from "./lib/cytoscape-utils";
 import {
+  type ChildDragVisual,
   createDemoCy,
   DEMO_COMPOUND,
   type Scenario,
@@ -43,10 +44,132 @@ function formatDelta(dx: number, dy: number): string {
   return `${dx.toFixed(2)}, ${dy.toFixed(2)} (${mag.toFixed(2)})`;
 }
 
+function clientPointFromDomEvent(
+  event: MouseEvent | PointerEvent | TouchEvent,
+): { clientX: number; clientY: number } | null {
+  if ("clientX" in event && "clientY" in event) {
+    return { clientX: event.clientX, clientY: event.clientY };
+  }
+  const touch = event.touches[0] ?? event.changedTouches[0];
+  if (!touch) {
+    return null;
+  }
+  return { clientX: touch.clientX, clientY: touch.clientY };
+}
+
+function clientPointFromOriginalEvent(originalEvent: Event | undefined): { clientX: number; clientY: number } | null {
+  if (!originalEvent) {
+    return null;
+  }
+  if (
+    originalEvent instanceof MouseEvent ||
+    originalEvent instanceof PointerEvent ||
+    originalEvent instanceof TouchEvent
+  ) {
+    return clientPointFromDomEvent(originalEvent);
+  }
+  return null;
+}
+
+function wireDetachedDragListeners(
+  originalEvent: Event | undefined,
+  onMove: (event: MouseEvent | PointerEvent | TouchEvent) => void,
+  onUp: (event: MouseEvent | PointerEvent | TouchEvent) => void,
+): () => void {
+  const pointerStartEvent = originalEvent instanceof PointerEvent ? originalEvent : null;
+  let active = true;
+  const pointerTarget =
+    pointerStartEvent && pointerStartEvent.target instanceof Element
+      ? pointerStartEvent.target
+      : null;
+
+  if (pointerStartEvent && pointerTarget && "setPointerCapture" in pointerTarget) {
+    try {
+      pointerTarget.setPointerCapture(pointerStartEvent.pointerId);
+    } catch {
+      // Ignore capture failures; the window listeners below are the real fallback.
+    }
+  }
+
+  const onPointerMove = (event: PointerEvent) => {
+    if (!active) {
+      return;
+    }
+    if (pointerStartEvent && event.pointerId !== pointerStartEvent.pointerId) {
+      return;
+    }
+    onMove(event);
+  };
+  const onPointerUp = (event: PointerEvent) => {
+    if (!active) {
+      return;
+    }
+    if (pointerStartEvent && event.pointerId !== pointerStartEvent.pointerId) {
+      return;
+    }
+    active = false;
+    onUp(event);
+  };
+  const onMouseMove = (event: MouseEvent) => {
+    if (!active) {
+      return;
+    }
+    onMove(event);
+  };
+  const onMouseUp = (event: MouseEvent) => {
+    if (!active) {
+      return;
+    }
+    active = false;
+    onUp(event);
+  };
+  const onTouchMove = (event: TouchEvent) => {
+    if (!active) {
+      return;
+    }
+    onMove(event);
+  };
+  const onTouchUp = (event: TouchEvent) => {
+    if (!active) {
+      return;
+    }
+    active = false;
+    onUp(event);
+  };
+
+  window.addEventListener("pointermove", onPointerMove, true);
+  window.addEventListener("pointerup", onPointerUp, true);
+  window.addEventListener("pointercancel", onPointerUp, true);
+  window.addEventListener("mousemove", onMouseMove, true);
+  window.addEventListener("mouseup", onMouseUp, true);
+  window.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+  window.addEventListener("touchend", onTouchUp, { capture: true, passive: false });
+  window.addEventListener("touchcancel", onTouchUp, { capture: true, passive: false });
+  return () => {
+    active = false;
+    window.removeEventListener("pointermove", onPointerMove, true);
+    window.removeEventListener("pointerup", onPointerUp, true);
+    window.removeEventListener("pointercancel", onPointerUp, true);
+    window.removeEventListener("mousemove", onMouseMove, true);
+    window.removeEventListener("mouseup", onMouseUp, true);
+    window.removeEventListener("touchmove", onTouchMove, true);
+    window.removeEventListener("touchend", onTouchUp, true);
+    window.removeEventListener("touchcancel", onTouchUp, true);
+    if (pointerTarget && pointerStartEvent && "releasePointerCapture" in pointerTarget) {
+      try {
+        pointerTarget.releasePointerCapture(pointerStartEvent.pointerId);
+      } catch {
+        // Ignore release failures during cleanup.
+      }
+    }
+  };
+}
+
 export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const compoundRef = useRef(DEMO_COMPOUND);
+  const childDragCleanupRef = useRef<(() => void) | null>(null);
   const resizeStartRef = useRef<{
     corner: ResizeCorner;
     startClientX: number;
@@ -70,6 +193,7 @@ export function App() {
   const [baseline, setBaseline] = useState<GraphSnapshot | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<GraphSnapshot | null>(null);
   const [modelSnapshot, setModelSnapshot] = useState<string>("");
+  const [childDragVisual, setChildDragVisual] = useState<ChildDragVisual | null>(null);
 
   const compound = compoundRef.current;
 
@@ -78,8 +202,9 @@ export function App() {
     if (!cy) {
       return;
     }
-    setLiveSnapshot(compound.snapshot(cy));
+    setLiveSnapshot(compound.liveSnapshot(cy));
     setModelSnapshot(compound.modelDebugSnapshot());
+    setChildDragVisual(compound.childDragVisual(cy));
   }, [compound]);
 
   const recomputeHandles = useCallback(() => {
@@ -114,7 +239,9 @@ export function App() {
 
     const onRender = () => {
       recomputeHandles();
-      refreshDebug();
+      if (!compound.isChildDragInProgress()) {
+        refreshDebug();
+      }
     };
     cy.on("render zoom pan", onRender);
 
@@ -123,6 +250,68 @@ export function App() {
       refreshDebug();
     };
     cy.on("select unselect", onSelectionChange);
+
+    const stopChildDrag = () => {
+      compound.finishChildDrag(cy);
+      childDragCleanupRef.current?.();
+      childDragCleanupRef.current = null;
+      recomputeHandles();
+      refreshDebug();
+    };
+
+    const onChildDragStart = (event: EventObject) => {
+      if (event.target.id() !== compound.child.id) {
+        return;
+      }
+
+      const clientPoint = clientPointFromOriginalEvent(event.originalEvent as Event | undefined);
+      if (!clientPoint) {
+        return;
+      }
+
+      const originalEvent = event.originalEvent as Event | undefined;
+      originalEvent?.preventDefault?.();
+      originalEvent?.stopPropagation?.();
+
+      childDragCleanupRef.current?.();
+      childDragCleanupRef.current = null;
+
+      const baselineSnap = compound.snapshot(cy);
+      setBaseline(baselineSnap);
+      setLiveSnapshot(baselineSnap);
+
+      compound.beginChildDrag(cy);
+      refreshDebug();
+
+      const startClientPoint = clientPoint;
+
+      const onWindowMove = (domEvent: MouseEvent | PointerEvent | TouchEvent) => {
+        const nextClientPoint = clientPointFromDomEvent(domEvent);
+        if (!nextClientPoint) {
+          return;
+        }
+        domEvent.preventDefault();
+        compound.syncChildDragByDelta({
+          graph: {
+            x: (nextClientPoint.clientX - startClientPoint.clientX) / cy.zoom(),
+            y: (nextClientPoint.clientY - startClientPoint.clientY) / cy.zoom(),
+          },
+          rendered: {
+            x: nextClientPoint.clientX - startClientPoint.clientX,
+            y: nextClientPoint.clientY - startClientPoint.clientY,
+          },
+        });
+        refreshDebug();
+      };
+
+      const onWindowUp = (domEvent: MouseEvent | PointerEvent | TouchEvent) => {
+        domEvent.preventDefault();
+        stopChildDrag();
+      };
+
+      childDragCleanupRef.current = wireDetachedDragListeners(originalEvent, onWindowMove, onWindowUp);
+    };
+    cy.on("tapstart", `node#${compound.child.id}`, onChildDragStart);
 
     compound.attachParentDragHandlers(cy, {
       onGrab: (snap) => {
@@ -136,19 +325,9 @@ export function App() {
       },
     });
 
-    compound.attachChildDragHandlers(cy, {
-      onGrab: (snap) => {
-        setBaseline(snap);
-        setLiveSnapshot(snap);
-        refreshDebug();
-      },
-      onChange: () => {
-        recomputeHandles();
-        refreshDebug();
-      },
-    });
-
     return () => {
+      childDragCleanupRef.current?.();
+      childDragCleanupRef.current = null;
       cy.destroy();
       cyRef.current = null;
     };
@@ -293,6 +472,34 @@ export function App() {
 
         <div className="graph-shell">
           <div className="graph-viewport" ref={containerRef} />
+          {childDragVisual ? (
+            <div className="child-drag-layer">
+              <div
+                className="child-drag-ghost"
+                style={{
+                  left: childDragVisual.renderedX,
+                  top: childDragVisual.renderedY,
+                }}
+              >
+                <div
+                  className="child-drag-node"
+                  style={{
+                    backgroundColor: childDragVisual.color,
+                    transform: `translate(-50%, -50%) scale(${childDragVisual.zoom})`,
+                  }}
+                />
+                <div
+                  className="child-drag-label"
+                  style={{
+                    top: `${childDragVisual.zoom * 30}px`,
+                    transform: `translateX(-50%) scale(${Math.max(1, childDragVisual.zoom * 0.95)})`,
+                  }}
+                >
+                  {childDragVisual.label}
+                </div>
+              </div>
+            </div>
+          ) : null}
           {handleRect
             ? CORNERS.map((corner) => {
                 const isEast = corner === "ne" || corner === "se";
