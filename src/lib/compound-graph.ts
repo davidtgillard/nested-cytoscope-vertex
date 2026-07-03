@@ -173,7 +173,7 @@ export class GraphParent {
 
   renderedHandleBox(cy: Core): { left: number; top: number; width: number; height: number } | null {
     const parent = cy.getElementById(this.id);
-    if (parent.empty()) {
+    if (parent.empty() || !parent.selected()) {
       return null;
     }
     const box = compoundChromeRenderedBox(parent);

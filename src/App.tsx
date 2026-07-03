@@ -118,6 +118,12 @@ export function App() {
     };
     cy.on("render zoom pan", onRender);
 
+    const onSelectionChange = () => {
+      recomputeHandles();
+      refreshDebug();
+    };
+    cy.on("select unselect", onSelectionChange);
+
     compound.attachParentDragHandlers(cy, {
       onGrab: (snap) => {
         setBaseline(snap);
