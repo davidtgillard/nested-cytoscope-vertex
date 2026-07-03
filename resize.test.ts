@@ -1,5 +1,6 @@
 import cytoscape from "cytoscape";
 import { describe, expect, it } from "vitest";
+import { DEMO_COMPOUND } from "./src/lib/compound-graph";
 import { CYTOSCAPE_STYLESHEET } from "./src/lib/cytoscape-theme";
 import { applyLayoutModelToCy, layoutModelFromCy } from "./src/lib/cytoscape-sync";
 import { compoundAbsolutePosition } from "./src/lib/cytoscape-utils";
@@ -68,5 +69,51 @@ describe("toy nested compound resize", () => {
     const child = roundTrip.nodes.get("wp-pdf-export");
     expect(child?.center.x).toBeCloseTo(model.nodes.get("wp-pdf-export")!.center.x, 3);
     expect(child?.center.y).toBeCloseTo(model.nodes.get("wp-pdf-export")!.center.y, 3);
+  });
+
+  it("child drag repin keeps parent center stable", () => {
+    const cy = cytoscape({
+      headless: true,
+      style: CYTOSCAPE_STYLESHEET,
+      elements: DEMO_COMPOUND.buildElements("preset-sized"),
+    });
+
+    const before = DEMO_COMPOUND.initializeFromCy(cy, "preset-sized", true);
+    cy.getElementById("wp-pdf-export").position({ x: 60, y: 40 });
+
+    DEMO_COMPOUND.beginChildDrag();
+    DEMO_COMPOUND.repinDuringChildDrag(cy);
+    const during = DEMO_COMPOUND.snapshot(cy);
+
+    expect(during.parent.center.x).toBeCloseTo(before.parent.center.x, 3);
+    expect(during.parent.center.y).toBeCloseTo(before.parent.center.y, 3);
+    expect(during.parent.w).toBeCloseTo(before.parent.w, 3);
+    expect(during.parent.h).toBeCloseTo(before.parent.h, 3);
+
+    DEMO_COMPOUND.finishChildDrag(cy);
+    const after = DEMO_COMPOUND.snapshot(cy);
+
+    expect(after.parent.center.x).toBeCloseTo(before.parent.center.x, 3);
+    expect(after.parent.center.y).toBeCloseTo(before.parent.center.y, 3);
+    expect(after.children["wp-pdf-export"].absolute.x).not.toBeCloseTo(
+      before.children["wp-pdf-export"].absolute.x,
+      1,
+    );
+  });
+
+  it("parent drag sync copies the dragged center into the model", () => {
+    const cy = cytoscape({
+      headless: true,
+      style: CYTOSCAPE_STYLESHEET,
+      elements: DEMO_COMPOUND.buildElements("preset-sized"),
+    });
+
+    DEMO_COMPOUND.initializeFromCy(cy, "preset-sized", true);
+    cy.getElementById("wp-invoicing").position({ x: 55, y: -25 });
+
+    DEMO_COMPOUND.syncParentDragFromCy(cy);
+
+    expect(DEMO_COMPOUND.getModel()?.nodes.get("wp-invoicing")?.center.x).toBeCloseTo(55, 3);
+    expect(DEMO_COMPOUND.getModel()?.nodes.get("wp-invoicing")?.center.y).toBeCloseTo(-25, 3);
   });
 });
