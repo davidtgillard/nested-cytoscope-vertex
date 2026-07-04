@@ -66,7 +66,8 @@ body {
 }
 
 .graph-viewport-dragging {
-  opacity: 0;
+  /* Block Cytoscape hit-testing while the window-level drag listeners run; do not
+     hide the canvas — siblings must stay visible (only the dragged leaf is opacity 0). */
   pointer-events: none;
 }
 
