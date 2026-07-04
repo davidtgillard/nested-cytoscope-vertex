@@ -16,14 +16,10 @@ export const COMPOUND_PADDING = {
   left: 8,
 } as const;
 
-/**
- * The parent title's font-size in model units at zoom 1, mirroring how Cytoscape itself
- * defines node `font-size` in model space (see the `node` selector below) so that
- * canvas-rendered labels naturally shrink/grow with zoom. The DOM title overlay
- * (`.compound-parent-label` in App.css) has no such built-in scaling, so App.tsx
- * multiplies this by `cy.zoom()` on every render tick to reproduce the same behavior.
- */
-export const COMPOUND_TITLE_BASE_FONT_SIZE = 100;
+export const LEAF_LABEL_FONT_SIZE = 11;
+export const LEAF_LABEL_FONT_FAMILY = '"Helvetica Neue", Helvetica, sans-serif';
+export const LEAF_LABEL_FONT_WEIGHT = 400;
+export const LEAF_LABEL_COLOR = "#e2e8f0";
 
 /**
  * How close a child's measured footprint may get to the parent's border (all four
@@ -60,15 +56,18 @@ export const CYTOSCAPE_STYLESHEET: StylesheetStyle[] = [
     selector: "node",
     style: {
       label: "data(label)",
-      "font-size": 11,
-      color: "#e2e8f0",
+      color: LEAF_LABEL_COLOR,
       "text-outline-color": "#0f172a",
       "text-outline-width": 2,
     },
   },
   {
     selector: "node[kind = 'leaf']",
-    style: {
+    style: ({
+      "font-size": "data(labelFontSize)",
+      "font-family": "data(labelFontFamily)",
+      "font-weight": "data(labelFontWeight)",
+      color: "data(labelColor)",
       "text-valign": "bottom",
       "text-halign": "center",
       "text-margin-y": LEAF_LABEL_MARGIN_Y,
@@ -79,7 +78,7 @@ export const CYTOSCAPE_STYLESHEET: StylesheetStyle[] = [
       height: LEAF_NODE_DIAMETER,
       shape: "ellipse",
       "z-index": 10,
-    },
+    } as unknown) as StylesheetStyle["style"],
   },
   {
     selector: "node[kind = 'container']",

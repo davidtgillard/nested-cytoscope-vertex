@@ -5,7 +5,13 @@ import {
   layoutModelFromCy,
   type SyncMode,
 } from "./cytoscape-sync";
-import { CYTOSCAPE_STYLESHEET } from "./cytoscape-theme";
+import {
+  CYTOSCAPE_STYLESHEET,
+  LEAF_LABEL_COLOR,
+  LEAF_LABEL_FONT_FAMILY,
+  LEAF_LABEL_FONT_SIZE,
+  LEAF_LABEL_FONT_WEIGHT,
+} from "./cytoscape-theme";
 import {
   INITIAL_COMPOUND_SLACK,
   compoundAbsolutePosition,
@@ -32,6 +38,7 @@ export interface ChildDragVisual {
   renderedX: number;
   renderedY: number;
   zoom: number;
+  zoomScale: number;
   label: string;
   color: string;
 }
@@ -46,8 +53,9 @@ export interface ParentDragVisual {
   /**
    * Current zoom relative to the zoom Cytoscape's initial `fit: true` layout landed on
    * (1 = unchanged since first render), so the DOM title overlay can shrink/grow as the
-   * user actually zooms in or out (see COMPOUND_TITLE_BASE_FONT_SIZE in
-   * cytoscape-theme.ts). Using the raw absolute `cy.zoom()` instead would be wrong here:
+   * user actually zooms in or out while leaving `.compound-parent-label { font-size: ... }`
+   * in App.css as the authoritative base size. Using the raw absolute `cy.zoom()` instead
+   * would be wrong here:
    * `fit: true` can land anywhere far from 1 depending on how much screen space the
    * graph's model-unit size fills, which would make the title huge or tiny from the very
    * first frame rather than only in response to the user's own zoom gestures.
@@ -84,6 +92,10 @@ export class GraphChild {
         label: this.label,
         kind: "leaf",
         color: this.color,
+        labelFontSize: LEAF_LABEL_FONT_SIZE,
+        labelFontFamily: LEAF_LABEL_FONT_FAMILY,
+        labelFontWeight: LEAF_LABEL_FONT_WEIGHT,
+        labelColor: LEAF_LABEL_COLOR,
       },
       position: { ...PRESET_LAYOUT.child },
     };
@@ -287,6 +299,7 @@ export class GraphParent {
       renderedX: childAbsolute.x * cy.zoom() + cy.pan().x + session.renderedOffset.x,
       renderedY: childAbsolute.y * cy.zoom() + cy.pan().y + session.renderedOffset.y,
       zoom: cy.zoom(),
+      zoomScale: cy.zoom() / this.referenceZoom,
       label: this.child.label,
       color: this.child.color,
     };

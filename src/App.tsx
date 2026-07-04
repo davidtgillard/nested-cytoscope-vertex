@@ -1,5 +1,6 @@
 import { type Core, type EventObject } from "cytoscape";
 import {
+  type CSSProperties,
   useCallback,
   useEffect,
   useMemo,
@@ -10,7 +11,10 @@ import {
 import { type SyncMode } from "./lib/cytoscape-sync";
 import {
   CHILD_EDGE_CLEARANCE_PX,
-  COMPOUND_TITLE_BASE_FONT_SIZE,
+  LEAF_LABEL_COLOR,
+  LEAF_LABEL_FONT_FAMILY,
+  LEAF_LABEL_FONT_SIZE,
+  LEAF_LABEL_FONT_WEIGHT,
   LEAF_LABEL_MARGIN_Y,
   LEAF_NODE_DIAMETER,
 } from "./lib/cytoscape-theme";
@@ -49,6 +53,37 @@ function formatDelta(dx: number, dy: number): string {
     return "0";
   }
   return `${dx.toFixed(2)}, ${dy.toFixed(2)} (${mag.toFixed(2)})`;
+}
+
+function readCssPixelValue(element: HTMLElement | null, fallback: number): number {
+  if (!element) {
+    return fallback;
+  }
+  const parsed = Number.parseFloat(window.getComputedStyle(element).fontSize);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readComputedTextStyle(element: HTMLElement | null): {
+  fontSize: number;
+  fontFamily: string;
+  fontWeight: string;
+  color: string;
+} {
+  if (!element) {
+    return {
+      fontSize: LEAF_LABEL_FONT_SIZE,
+      fontFamily: LEAF_LABEL_FONT_FAMILY,
+      fontWeight: String(LEAF_LABEL_FONT_WEIGHT),
+      color: LEAF_LABEL_COLOR,
+    };
+  }
+  const style = window.getComputedStyle(element);
+  return {
+    fontSize: readCssPixelValue(element, LEAF_LABEL_FONT_SIZE),
+    fontFamily: style.fontFamily || LEAF_LABEL_FONT_FAMILY,
+    fontWeight: style.fontWeight || String(LEAF_LABEL_FONT_WEIGHT),
+    color: style.color || LEAF_LABEL_COLOR,
+  };
 }
 
 function clientPointFromDomEvent(
@@ -174,9 +209,12 @@ function wireDetachedDragListeners(
 
 export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const childLabelProbeRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const compoundRef = useRef(DEMO_COMPOUND);
   const childDragCleanupRef = useRef<(() => void) | null>(null);
+  const childLabelStyleSignatureRef = useRef("");
+  const referenceZoomRef = useRef(1);
   const resizeStartRef = useRef<{
     corner: ResizeCorner;
     startClientX: number;
@@ -225,6 +263,33 @@ export function App() {
     setHandleRect(compound.renderedHandleBox(cy));
   }, [compound]);
 
+  const applyConfiguredChildLabelStyle = useCallback((cy: Core): void => {
+    const labelStyle = readComputedTextStyle(childLabelProbeRef.current);
+    const referenceZoom = referenceZoomRef.current > 0 ? referenceZoomRef.current : 1;
+    childLabelStyleSignatureRef.current = JSON.stringify(labelStyle);
+    cy.batch(() => {
+      cy.nodes("[kind = 'leaf']").forEach((node) => {
+        node.data("labelFontSize", labelStyle.fontSize / referenceZoom);
+        node.data("labelFontFamily", labelStyle.fontFamily);
+        node.data("labelFontWeight", labelStyle.fontWeight);
+        node.data("labelColor", labelStyle.color);
+      });
+    });
+  }, []);
+
+  const syncConfiguredChildLabelStyle = useCallback(
+    (cy: Core): boolean => {
+      const nextStyle = readComputedTextStyle(childLabelProbeRef.current);
+      const nextSignature = JSON.stringify(nextStyle);
+      if (nextSignature === childLabelStyleSignatureRef.current) {
+        return false;
+      }
+      applyConfiguredChildLabelStyle(cy);
+      return true;
+    },
+    [applyConfiguredChildLabelStyle],
+  );
+
   /**
    * The child's left/right/bottom/top edge clearance needs to stay a constant number of
    * *screen pixels*, not model units, so it reads correctly no matter how far
@@ -256,6 +321,29 @@ export function App() {
   }, [compound, syncMode]);
 
   useEffect(() => {
+    const probe = childLabelProbeRef.current;
+    if (!probe || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      const cy = cyRef.current;
+      if (!cy) {
+        return;
+      }
+      if (!syncConfiguredChildLabelStyle(cy)) {
+        return;
+      }
+      if (scenario === "measured") {
+        setGraphKey((value) => value + 1);
+        return;
+      }
+      refreshDebug();
+    });
+    observer.observe(probe);
+    return () => observer.disconnect();
+  }, [refreshDebug, scenario, syncConfiguredChildLabelStyle]);
+
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;
@@ -265,6 +353,8 @@ export function App() {
     cyRef.current = cy;
 
     cy.ready(() => {
+      referenceZoomRef.current = cy.zoom() > 0 ? cy.zoom() : 1;
+      applyConfiguredChildLabelStyle(cy);
       const snap = compound.initializeFromCy(cy, scenario, preserveOnMeasure);
       setBaseline(snap);
       setLiveSnapshot(snap);
@@ -273,6 +363,7 @@ export function App() {
     });
 
     const onRender = () => {
+      syncConfiguredChildLabelStyle(cy);
       recomputeHandles();
       if (!compound.isChildDragInProgress()) {
         refreshDebug();
@@ -359,8 +450,9 @@ export function App() {
       childDragCleanupRef.current = null;
       cy.destroy();
       cyRef.current = null;
+      childLabelStyleSignatureRef.current = "";
     };
-  }, [graphKey, preserveOnMeasure, recomputeHandles, refreshDebug, scenario, compound]);
+  }, [applyConfiguredChildLabelStyle, graphKey, preserveOnMeasure, recomputeHandles, refreshDebug, scenario, compound, syncConfiguredChildLabelStyle]);
 
   const applyResize = useCallback(
     (clientX: number, clientY: number) => {
@@ -500,6 +592,9 @@ export function App() {
         </div>
 
         <div className="graph-shell">
+          <div ref={childLabelProbeRef} className="child-drag-label label-style-probe">
+            {compound.child.label}
+          </div>
           <div
             className={`graph-viewport${childDragVisual ? " graph-viewport-dragging" : ""}`}
             ref={containerRef}
@@ -516,7 +611,11 @@ export function App() {
             >
               <div
                 className="compound-parent-label"
-                style={{ fontSize: COMPOUND_TITLE_BASE_FONT_SIZE * parentDragVisual.zoomScale }}
+                style={
+                  {
+                    "--compound-parent-label-zoom-scale": parentDragVisual.zoomScale,
+                  } as CSSProperties
+                }
               >
                 {parentDragVisual.label}
               </div>
@@ -542,7 +641,7 @@ export function App() {
                   className="child-drag-label"
                   style={{
                     top: `${childDragVisual.zoom * (LEAF_NODE_DIAMETER / 2 + LEAF_LABEL_MARGIN_Y)}px`,
-                    transform: `translateX(-50%) scale(${Math.max(1, childDragVisual.zoom * 0.95)})`,
+                    transform: `translateX(-50%) scale(${childDragVisual.zoomScale})`,
                   }}
                 >
                   {childDragVisual.label}

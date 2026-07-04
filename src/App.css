@@ -87,7 +87,9 @@ body {
   bottom: 100%;
   margin-bottom: 4px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--compound-parent-label-zoom-scale, 1));
+  transform-origin: bottom center;
+  font-size: 35px;
   color: #e2e8f0;
   text-shadow:
     0 0 1px #0f172a,
@@ -139,10 +141,10 @@ body {
 .child-drag-label {
   position: absolute;
   left: 0;
-  /* Match Cytoscape's default node font/line-height exactly (no half-leading), so the
-     label sits at the same pixel offset as the real canvas-rendered label. */
+  /* This font-size is read back at runtime and mirrored into Cytoscape's canvas label, so
+     editing it here changes both the drag ghost and the real child label. */
   font-family: "Helvetica Neue", Helvetica, sans-serif;
-  font-size: 11px;
+  font-size: 35px;
   line-height: 1;
   color: #e2e8f0;
   transform-origin: top center;
@@ -152,6 +154,12 @@ body {
     0 0 1px #0f172a,
     0 0 1px #0f172a;
   white-space: nowrap;
+}
+
+.label-style-probe {
+  top: -9999px;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .compound-resize-handle {
