@@ -124,9 +124,16 @@ body {
   transform-origin: center center;
 }
 
-/* Mirrors node[kind = 'leaf']:selected in cytoscape-theme.ts (border-width 3, #38bdf8). */
+/*
+ * Mirrors node[kind = 'leaf']:selected in cytoscape-theme.ts (border-width 3, #38bdf8).
+ * Cytoscape draws that border as a stroke centered on the shape's edge, so the node's
+ * outer diameter barely changes while the visible colored fill shrinks slightly. Using a
+ * real `border` here (box-sizing: border-box is set globally) reproduces that: the fixed
+ * 36px box stays put and the border eats inward, instead of a box-shadow which sits
+ * entirely outside the box and would make the ghost look bigger than the real node.
+ */
 .child-drag-node.is-selected {
-  box-shadow: 0 0 0 3px #38bdf8;
+  border: 3px solid #38bdf8;
 }
 
 .child-drag-label {

@@ -496,7 +496,7 @@ export function App() {
                 }}
               >
                 <div
-                  className={`child-drag-node${childDragVisual.selected ? " is-selected" : ""}`}
+                  className="child-drag-node is-selected"
                   style={{
                     backgroundColor: childDragVisual.color,
                     transform: `translate(-50%, -50%) scale(${childDragVisual.zoom})`,

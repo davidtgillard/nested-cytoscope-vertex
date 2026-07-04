@@ -34,7 +34,6 @@ export interface ChildDragVisual {
   zoom: number;
   label: string;
   color: string;
-  selected: boolean;
 }
 
 export interface ParentDragVisual {
@@ -242,6 +241,15 @@ export class GraphParent {
     };
   }
 
+  /**
+   * The ghost always renders with the "selected" ring while a drag is active: our
+   * detached-drag gesture (window pointermove/up listeners, see App.tsx) intercepts the
+   * interaction before Cytoscape's own tap/select machinery sees a completed short click,
+   * so `cyChild.selected()` never flips true mid-drag even though the gesture is a real
+   * grab. The ring is therefore a "currently being dragged" indicator, not a mirror of
+   * Cytoscape's selection state - it appears for the whole gesture and disappears the
+   * instant the ghost is torn down in finishChildDrag.
+   */
   childDragVisual(cy: Core): ChildDragVisual | null {
     const session = this.childDragSession;
     if (!this.childDragActive || !this.model || !session) {
@@ -254,7 +262,6 @@ export class GraphParent {
       zoom: cy.zoom(),
       label: this.child.label,
       color: this.child.color,
-      selected: cy.getElementById(this.child.id).selected(),
     };
   }
 
