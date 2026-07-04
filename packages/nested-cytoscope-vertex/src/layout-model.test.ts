@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALL_LOOSE_EDGES,
+  NODE_OVERLAP_PADDING,
   absoluteCenter,
   buildLayoutModel,
   canOverlap,
   cloneLayoutModel,
   compositeInteriorBox,
+  compositeOuterBox,
   flatLayoutFromModel,
   isAncestor,
   minimumCompositeOuterBox,
@@ -18,7 +21,7 @@ import {
   subtreeNodeIds,
   visualBox,
 } from "./layout-model";
-import { COMPOUND_MIN_HEIGHT, COMPOUND_MIN_WIDTH } from "./cytoscape-theme";
+import { COMPOUND_MIN_HEIGHT, COMPOUND_MIN_WIDTH, COMPOUND_PADDING } from "./cytoscape-theme";
 
 describe("layout-model utilities", () => {
   const inputs = [
@@ -391,6 +394,17 @@ describe("layout-model move and resize branches", () => {
     expect(result.y2 - result.y1).toBe(COMPOUND_MIN_HEIGHT);
   });
 
+  it("resizeCompoundBoxFromCorner expands height independently when width already satisfies minimum", () => {
+    const start = { x1: 0, y1: 0, x2: COMPOUND_MIN_WIDTH, y2: 30 };
+    const result = resizeCompoundBoxFromCorner(start, "se", 0, -25, {
+      childrenBox: null,
+      edgeClearance: 10,
+      looseEdges: { west: true, east: true, north: true, south: true },
+    });
+    expect(result.x2 - result.x1).toBe(COMPOUND_MIN_WIDTH);
+    expect(result.y2 - result.y1).toBeGreaterThanOrEqual(COMPOUND_MIN_HEIGHT);
+  });
+
   it("resizeComposite avoids overlapping sibling compounds while growing", () => {
     const model = buildLayoutModel(
       [
@@ -409,5 +423,179 @@ describe("layout-model move and resize branches", () => {
     const after = absoluteCenter(resized, "child");
     expect(after.x).toBeCloseTo(before.x, 0);
     expect(nodesOverlapInModel(resized, "left", "right")).toBe(false);
+  });
+
+  it("SE shrink uses reservedEdge clearance matching child drag bounds", () => {
+    const footprint = { halfW: 18, halfHTop: 18, halfHBottom: 26 };
+    const reservedEdge = -2;
+    const inputs = [
+      { id: "parent", isCompound: true },
+      { id: "child", parent: "parent", footprint },
+    ];
+    let model = buildLayoutModel(inputs, {
+      parent: { x: 0, y: 0, w: 200, h: 200 },
+      child: { x: 50, y: 30 },
+    });
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+
+    const childFitRight = 50 + footprint.halfW;
+    const expectedMinRight = childFitRight + reservedEdge;
+    const legacyMinRight = childFitRight + NODE_OVERLAP_PADDING + COMPOUND_PADDING.right;
+
+    model = resizeComposite(model, "parent", "se", -1000, 0, {
+      childrenBox: {
+        x1: 50 - footprint.halfW,
+        y1: 30 - footprint.halfHTop,
+        x2: 50 + footprint.halfW,
+        y2: 30 + footprint.halfHBottom,
+      },
+      edgeClearance: reservedEdge,
+      looseEdges: ALL_LOOSE_EDGES,
+    });
+    const outer = compositeOuterBox(model, "parent")!;
+
+    expect(outer.x2).toBeCloseTo(expectedMinRight, 3);
+    expect(outer.x2).toBeLessThan(legacyMinRight);
+  });
+
+  it("SE drag keeps the opposite NW corner fixed", () => {
+    const footprint = { halfW: 18, halfHTop: 18, halfHBottom: 26 };
+    const reservedEdge = -2;
+    const inputs = [
+      { id: "parent", isCompound: true },
+      { id: "child", parent: "parent", footprint },
+    ];
+    const model = buildLayoutModel(inputs, {
+      parent: { x: 0, y: 0, w: 420, h: 280 },
+      child: { x: 0, y: 0 },
+    });
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+    const startOuter = compositeOuterBox(model, "parent")!;
+    const constraints = {
+      childrenBox: {
+        x1: -footprint.halfW,
+        y1: -footprint.halfHTop,
+        x2: footprint.halfW,
+        y2: footprint.halfHBottom,
+      },
+      edgeClearance: reservedEdge,
+      looseEdges: ALL_LOOSE_EDGES,
+    };
+    const after = resizeComposite(model, "parent", "se", -80, -60, constraints);
+    const outer = compositeOuterBox(after, "parent")!;
+    expect(outer.x1).toBeCloseTo(startOuter.x1, 6);
+    expect(outer.y1).toBeCloseTo(startOuter.y1, 6);
+  });
+
+  it("starting a new corner drag does not snap on zero movement", () => {
+    const footprint = { halfW: 18, halfHTop: 18, halfHBottom: 26 };
+    const reservedEdge = -2;
+    const inputs = [
+      { id: "parent", isCompound: true },
+      { id: "child", parent: "parent", footprint },
+    ];
+    let model = buildLayoutModel(inputs, {
+      parent: { x: 0, y: 0, w: 420, h: 280 },
+      child: { x: 0, y: 0 },
+    });
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+
+    const childrenBox = {
+      x1: -footprint.halfW,
+      y1: -footprint.halfHTop,
+      x2: footprint.halfW,
+      y2: footprint.halfHBottom,
+    };
+    const seConstraints = {
+      childrenBox,
+      edgeClearance: reservedEdge,
+      looseEdges: ALL_LOOSE_EDGES,
+    };
+    model = resizeComposite(model, "parent", "se", -1000, -1000, seConstraints);
+    const afterSe = compositeOuterBox(model, "parent")!;
+
+    const nwConstraints = {
+      childrenBox,
+      edgeClearance: reservedEdge,
+      looseEdges: resizeLooseEdgesFromOuter(afterSe, childrenBox, reservedEdge),
+    };
+
+    model = resizeComposite(model, "parent", "nw", 0, 0, nwConstraints);
+    const outer = compositeOuterBox(model, "parent")!;
+    expect(outer.x1).toBeCloseTo(afterSe.x1, 6);
+    expect(outer.y1).toBeCloseTo(afterSe.y1, 6);
+    expect(outer.x2).toBeCloseTo(afterSe.x2, 6);
+    expect(outer.y2).toBeCloseTo(afterSe.y2, 6);
+  });
+
+  it("zero drag delta leaves the parent box unchanged even with loose edges", () => {
+    const footprint = { halfW: 18, halfHTop: 18, halfHBottom: 26 };
+    const reservedEdge = -2;
+    const inputs = [
+      { id: "parent", isCompound: true },
+      { id: "child", parent: "parent", footprint },
+    ];
+    const model = buildLayoutModel(inputs, {
+      parent: { x: 0, y: 0, w: 420, h: 280 },
+      child: { x: 0, y: 0 },
+    });
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+    const before = compositeOuterBox(model, "parent")!;
+    const constraints = {
+      childrenBox: {
+        x1: -footprint.halfW,
+        y1: -footprint.halfHTop,
+        x2: footprint.halfW,
+        y2: footprint.halfHBottom,
+      },
+      edgeClearance: reservedEdge,
+      looseEdges: ALL_LOOSE_EDGES,
+    };
+    const after = resizeComposite(model, "parent", "se", 0, 0, constraints);
+    const outer = compositeOuterBox(after, "parent")!;
+    expect(outer.x1).toBeCloseTo(before.x1, 6);
+    expect(outer.y1).toBeCloseTo(before.y1, 6);
+    expect(outer.x2).toBeCloseTo(before.x2, 6);
+    expect(outer.y2).toBeCloseTo(before.y2, 6);
+  });
+
+  it("multi-child resize clamps each edge by the extremal child", () => {
+    const footprint = { halfW: 10, halfHTop: 10, halfHBottom: 10 };
+    const reservedEdge = 0;
+    const inputs = [
+      { id: "parent", isCompound: true },
+      { id: "child-a", parent: "parent", footprint },
+      { id: "child-b", parent: "parent", footprint },
+    ];
+    const layout = {
+      parent: { x: 0, y: 0, w: 400, h: 400 },
+      "child-a": { x: -150, y: -150 },
+      "child-b": { x: 150, y: 150 },
+    };
+
+    let model = buildLayoutModel(inputs, layout);
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+
+    const expectedMinLeft = -150 - footprint.halfW - reservedEdge;
+    const expectedMinTop = -150 - footprint.halfHTop - reservedEdge;
+    const expectedMinRight = 150 + footprint.halfW + reservedEdge;
+    const expectedMinBottom = 150 + footprint.halfHBottom + reservedEdge;
+
+    model = resizeComposite(model, "parent", "nw", 1000, 1000);
+    let outer = compositeOuterBox(model, "parent")!;
+    const startOuter = compositeOuterBox(buildLayoutModel(inputs, layout), "parent")!;
+    expect(outer.x1).toBeCloseTo(expectedMinLeft, 3);
+    expect(outer.y1).toBeCloseTo(expectedMinTop, 3);
+    expect(outer.x2).toBeCloseTo(startOuter.x2, 3);
+    expect(outer.y2).toBeCloseTo(startOuter.y2, 3);
+
+    model = buildLayoutModel(inputs, layout);
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+    model = resizeComposite(model, "parent", "se", -1000, -1000);
+    outer = compositeOuterBox(model, "parent")!;
+    expect(outer.x2).toBeCloseTo(expectedMinRight, 3);
+    expect(outer.y2).toBeCloseTo(expectedMinBottom, 3);
+    expect(outer.x1).toBeCloseTo(startOuter.x1, 3);
+    expect(outer.y1).toBeCloseTo(startOuter.y1, 3);
   });
 });

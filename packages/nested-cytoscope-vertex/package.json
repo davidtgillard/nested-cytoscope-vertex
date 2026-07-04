@@ -20,7 +20,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "docs": "typedoc",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "attw": "npm run build && npm run typecheck"
   },
   "peerDependencies": {

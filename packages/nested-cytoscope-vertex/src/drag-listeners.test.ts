@@ -115,6 +115,24 @@ describe("drag-listeners", () => {
       expect(onUp).toHaveBeenCalledWith(up);
     });
 
+    it("ignores a second touch end after the drag already ended", () => {
+      const listeners = listenerMap();
+      const onMove = vi.fn();
+      const onUp = vi.fn();
+      wireDetachedDragListeners(undefined, onMove, onUp);
+
+      const touch = { clientX: 1, clientY: 2 } as Touch;
+      const up = {
+        touches: [],
+        changedTouches: [touch],
+        preventDefault: vi.fn(),
+      } as unknown as TouchEvent;
+      listeners.get("touchend")!(up);
+      listeners.get("touchend")!(up);
+
+      expect(onUp).toHaveBeenCalledTimes(1);
+    });
+
     it("ignores pointer events with a mismatched pointerId", () => {
       const listeners = listenerMap();
       const onMove = vi.fn();

@@ -1,4 +1,3 @@
-import type { NodeSingular } from "cytoscape";
 import { describe, expect, it } from "vitest";
 import { boxesOverlap, detectCollision, resolvePosition } from "./collision";
 
@@ -100,37 +99,5 @@ describe("collision", () => {
       boxForCenter: () => null,
     });
     expect(result).toEqual({ x: 200, y: 200 });
-  });
-});
-
-describe("cytoscape-utils internals", () => {
-  it("measureAndPinCompound and applyFrozenCompoundSize keep anchors stable", async () => {
-    const cytoscape = (await import("cytoscape")).default;
-    const { measureAndPinCompound, applyFrozenCompoundSize } = await import("./cytoscape-utils");
-    const { createCompoundGraphStylesheet } = await import("./cytoscape-theme");
-
-    const cy = cytoscape({
-      headless: true,
-      style: createCompoundGraphStylesheet(),
-      elements: [
-        { data: { id: "parent", kind: "container" }, position: { x: 0, y: 0 } },
-        { data: { id: "child", kind: "leaf" }, position: { x: 10, y: 5 } },
-      ],
-    });
-
-    const parent = cy.getElementById("parent") as NodeSingular;
-    const child = cy.getElementById("child") as NodeSingular;
-    child.position({ x: 10, y: 5 });
-    measureAndPinCompound(parent, child, 200, 120);
-    expect(parent.data("compoundWidth")).toBe(200);
-    expect(parent.position()).toEqual({ x: 10, y: 5 });
-
-    parent.data("compoundWidth", 200);
-    parent.data("compoundHeight", 120);
-    parent.position({ x: 0, y: 0 });
-    applyFrozenCompoundSize(parent, 240, 160);
-    expect(parent.data("compoundWidth")).toBe(240);
-    expect(parent.position().x).toBeCloseTo(20, 3);
-    expect(parent.position().y).toBeCloseTo(20, 3);
   });
 });

@@ -1,6 +1,8 @@
+import type { NodeSingular } from "cytoscape";
 import cytoscape from "cytoscape";
 import { describe, expect, it } from "vitest";
 import { createCompoundGraphStylesheet } from "./cytoscape-theme";
+import { GraphParentVertex } from "./compound-graph";
 import {
   applyFrozenCompoundSize,
   childFitBoxAbsoluteFromCy,
@@ -8,13 +10,21 @@ import {
   compoundAbsolutePosition,
   compoundSizeForContent,
   graphNodeModelPosition,
+  measureAndPinCompound,
   measureLeafFootprint,
   snapshotDelta,
   snapshotGraphState,
   syncLeafFootprintsFromCy,
   type GraphSnapshot,
 } from "./cytoscape-utils";
-import { buildLayoutModel, compositeOuterBox } from "./layout-model";
+import {
+  ALL_LOOSE_EDGES,
+  buildLayoutModel,
+  compositeOuterBox,
+  parentOuterBoundsFromChildFit,
+  resizeComposite,
+} from "./layout-model";
+import { applyLayoutModelToCy, layoutModelFromCy } from "./cytoscape-sync";
 
 describe("cytoscape-utils", () => {
   it("compoundSizeForContent falls back to minimum compound size", () => {
@@ -198,5 +208,122 @@ describe("cytoscape-utils", () => {
     const footprint = measureLeafFootprint(node);
     expect(footprint.halfW).toBeGreaterThan(0);
     expect(footprint.halfHBottom).toBeGreaterThan(0);
+  });
+
+  it("measureAndPinCompound and applyFrozenCompoundSize keep anchors stable", () => {
+    const cy = cytoscape({
+      headless: true,
+      style: createCompoundGraphStylesheet(),
+      elements: [
+        { data: { id: "parent", kind: "container" }, position: { x: 0, y: 0 } },
+        { data: { id: "child", kind: "leaf" }, position: { x: 10, y: 5 } },
+      ],
+    });
+
+    const parent = cy.getElementById("parent") as NodeSingular;
+    const child = cy.getElementById("child") as NodeSingular;
+    child.position({ x: 10, y: 5 });
+    measureAndPinCompound(parent, child, 200, 120);
+    expect(parent.data("compoundWidth")).toBe(200);
+    expect(parent.position()).toEqual({ x: 10, y: 5 });
+
+    parent.data("compoundWidth", 200);
+    parent.data("compoundHeight", 120);
+    parent.position({ x: 0, y: 0 });
+    applyFrozenCompoundSize(parent, 240, 160);
+    expect(parent.data("compoundWidth")).toBe(240);
+    expect(parent.position().x).toBeCloseTo(20, 3);
+    expect(parent.position().y).toBeCloseTo(20, 3);
+  });
+
+  it("SE shrink with live cy child fit box stops at fit plus reservedEdge", () => {
+    const cy = cytoscape({
+      headless: true,
+      style: createCompoundGraphStylesheet(),
+      elements: [
+        {
+          data: { id: "parent", kind: "container", compoundWidth: 240, compoundHeight: 240 },
+          position: { x: 0, y: 0 },
+        },
+        {
+          data: {
+            id: "child",
+            kind: "leaf",
+            label: "child",
+            color: "#94a3b8",
+            nodeWidth: 36,
+            nodeHeight: 36,
+            labelMarginY: 6,
+            labelFontSize: 11,
+          },
+          position: { x: 40, y: 20 },
+        },
+      ],
+    });
+
+    const inputs = [
+      { id: "parent", isCompound: true },
+      { id: "child", parent: "parent" },
+    ];
+    let model = layoutModelFromCy(cy, inputs);
+    const reservedEdge = -2;
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+    applyLayoutModelToCy(cy, model);
+
+    const childrenBox = childrenFitBoxAbsoluteFromCy(cy, model, "parent");
+    expect(childrenBox).not.toBeNull();
+
+    model = resizeComposite(model, "parent", "se", -1000, 0, {
+      childrenBox: childrenBox!,
+      edgeClearance: reservedEdge,
+      looseEdges: ALL_LOOSE_EDGES,
+    });
+    const outer = compositeOuterBox(model, "parent")!;
+
+    expect(outer.x2).toBeCloseTo(childrenBox!.x2 + reservedEdge, 2);
+  });
+
+  it("SE shrink on sized demo parent only moves dragged east and south edges", () => {
+    const DEMO_COMPOUND = GraphParentVertex.create({
+      id: "wp-invoicing",
+      label: "wp-invoicing",
+      color: "#64748b",
+      children: [
+        { id: "wp-pdf-export", label: "wp-pdf-export", color: "#94a3b8", x: -60, y: 0 },
+        { id: "wp-email-export", label: "wp-email-export", color: "#a8b4c4", x: 60, y: 0 },
+      ],
+    });
+    const elements = DEMO_COMPOUND.buildElements();
+    const parentEl = elements[0];
+    if (parentEl.data) {
+      parentEl.data = { ...parentEl.data, compoundWidth: 420, compoundHeight: 280 };
+    }
+    const cy = cytoscape({
+      headless: true,
+      style: createCompoundGraphStylesheet(),
+      elements,
+    });
+
+    DEMO_COMPOUND.initializeFromCy(cy);
+    const reservedEdge = -2;
+    DEMO_COMPOUND.setEdgeClearance(reservedEdge);
+
+    const model = DEMO_COMPOUND.getModel()!;
+    const startOuter = compositeOuterBox(model, "wp-invoicing")!;
+    const childrenBox = childrenFitBoxAbsoluteFromCy(cy, model, "wp-invoicing");
+    expect(childrenBox).not.toBeNull();
+
+    const target = parentOuterBoundsFromChildFit(childrenBox!, reservedEdge);
+    const resized = resizeComposite(model, "wp-invoicing", "se", -1000, -1000, {
+      childrenBox: childrenBox!,
+      edgeClearance: reservedEdge,
+      looseEdges: ALL_LOOSE_EDGES,
+    });
+    const outer = compositeOuterBox(resized, "wp-invoicing")!;
+
+    expect(outer.x1).toBeCloseTo(startOuter.x1, 1);
+    expect(outer.y1).toBeCloseTo(startOuter.y1, 1);
+    expect(outer.x2).toBeCloseTo(target.x2, 1);
+    expect(outer.y2).toBeCloseTo(target.y2, 1);
   });
 });

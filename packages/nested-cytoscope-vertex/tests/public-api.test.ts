@@ -1,36 +1,23 @@
-import cytoscape from "cytoscape";
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_COMPOUND_GRAPH_THEME,
   GraphParentVertex,
   createCompoundGraphStylesheet,
   leafDomVisualStyle,
-} from "./index";
-import { snapshotDelta } from "./cytoscape-utils";
-
-const TEST_PARENT = GraphParentVertex.create({
-  id: "parent",
-  label: "parent",
-  color: "#64748b",
-  children: [
-    { id: "child-a", label: "child-a", color: "#94a3b8", x: -40, y: 0 },
-    { id: "child-b", label: "child-b", color: "#a8b4c4", x: 40, y: 0 },
-  ],
-});
-
-function headlessCy(elements: cytoscape.ElementDefinition[]) {
-  return cytoscape({
-    headless: true,
-    style: createCompoundGraphStylesheet(),
-    elements,
-  });
-}
+} from "@dgillard/nested-cytoscope-vertex";
+import {
+  TEST_PARENT,
+  captureTapstartHandler,
+  headlessCy,
+  syntheticTapstart,
+} from "./helpers/fixtures";
 
 describe("public API", () => {
   it("createCompoundGraphStylesheet accepts partial theme overrides", () => {
     const sheet = createCompoundGraphStylesheet({
       leafLabel: { color: "#ff0000" },
-    });
+    } as Parameters<typeof createCompoundGraphStylesheet>[0]);
     expect(sheet.length).toBeGreaterThan(0);
   });
 
@@ -116,46 +103,29 @@ describe("public API", () => {
     expect(TEST_PARENT.parentDragVisual(cy)).toBeNull();
   });
 
-  it("liveSnapshot falls back to cy snapshot when drag metadata is incomplete", () => {
-    type ParentVertexInternals = {
-      childDragActive: boolean;
-      childDragSession: null;
-      model: null;
-    };
-    const cy = headlessCy(TEST_PARENT.buildElements());
-    TEST_PARENT.initializeFromCy(cy);
-    const internal = TEST_PARENT as typeof TEST_PARENT & ParentVertexInternals;
-    internal.childDragActive = true;
-    internal.childDragSession = null;
-    internal.model = null;
-    expect(TEST_PARENT.liveSnapshot(cy)).toEqual(TEST_PARENT.snapshot(cy));
-    internal.childDragActive = false;
-  });
-
   it("liveSnapshot differs from snapshot during child drag", () => {
-    type ParentVertexTestApi = {
-      beginChildDrag(cy: cytoscape.Core, childId: string): void;
-      syncChildDragByDelta(cy: cytoscape.Core, childId: string, delta: { x: number; y: number }): void;
-      finishChildDrag(cy: cytoscape.Core): void;
-    };
-    const parent = TEST_PARENT as typeof TEST_PARENT & ParentVertexTestApi;
     const cy = headlessCy(TEST_PARENT.buildElements());
     TEST_PARENT.initializeFromCy(cy);
+    const invokeTapstart = captureTapstartHandler(cy);
+    TEST_PARENT.attachChildDragHandlers(cy, {});
 
-    parent.beginChildDrag(cy, "child-a");
+    invokeTapstart(
+      syntheticTapstart(cy, "child-a", new MouseEvent("mousedown", { clientX: 100, clientY: 200 })),
+    );
     expect(TEST_PARENT.isChildDragInProgress()).toBe(true);
     const visual = TEST_PARENT.childDragVisual(cy);
     expect(visual).not.toBeNull();
     expect(visual!.label).toBe("child-a");
 
-    parent.syncChildDragByDelta(cy, "child-a", { x: 20, y: 10 });
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: 120, clientY: 220 }));
     const live = TEST_PARENT.liveSnapshot(cy);
     const snap = TEST_PARENT.snapshot(cy);
     expect(live.children["child-a"].absolute.x).not.toBeCloseTo(
       snap.children["child-a"].absolute.x,
       0,
     );
-    parent.finishChildDrag(cy);
+
+    window.dispatchEvent(new MouseEvent("mouseup", { clientX: 120, clientY: 220 }));
     expect(TEST_PARENT.childDragVisual(cy)).toBeNull();
     expect(TEST_PARENT.isChildDragInProgress()).toBe(false);
   });
@@ -195,24 +165,24 @@ describe("public API", () => {
   });
 
   it("attachParentDragHandlers ignores gestures during child drag", () => {
-    type ParentVertexTestApi = {
-      beginChildDrag(cy: cytoscape.Core, childId: string): void;
-      finishChildDrag(cy: cytoscape.Core): void;
-    };
-    const parent = TEST_PARENT as typeof TEST_PARENT & ParentVertexTestApi;
     const cy = headlessCy(TEST_PARENT.buildElements());
     TEST_PARENT.initializeFromCy(cy);
     let changed = false;
     TEST_PARENT.attachParentDragHandlers(cy, { onChange: () => { changed = true; } });
+    const invokeTapstart = captureTapstartHandler(cy);
+    TEST_PARENT.attachChildDragHandlers(cy, {});
 
-    parent.beginChildDrag(cy, "child-a");
+    invokeTapstart(
+      syntheticTapstart(cy, "child-a", new MouseEvent("mousedown", { clientX: 100, clientY: 200 })),
+    );
+
     const node = cy.getElementById("parent");
     node.trigger("grab");
     node.position({ x: 80, y: 20 });
     node.trigger("drag");
     node.trigger("free");
-    parent.finishChildDrag(cy);
 
+    window.dispatchEvent(new MouseEvent("mouseup", { clientX: 100, clientY: 200 }));
     expect(changed).toBe(false);
   });
 
@@ -267,7 +237,7 @@ describe("public API", () => {
     expect(fresh.getModel()).toBeNull();
   });
 
-  it("snapshotDelta reports zero drift when parent resizes", () => {
+  it("resize preserves child absolute positions in snapshot", () => {
     const cy = headlessCy(TEST_PARENT.buildElements());
 
     TEST_PARENT.initializeFromCy(cy);
@@ -278,10 +248,10 @@ describe("public API", () => {
     TEST_PARENT.syncToCy(cy);
 
     const live = TEST_PARENT.snapshot(cy);
-    const deltas = snapshotDelta(baseline, live);
-
-    for (const delta of Object.values(deltas)) {
-      expect(Math.hypot(delta.dx, delta.dy)).toBeLessThan(0.5);
+    for (const childId of ["child-a", "child-b"] as const) {
+      const before = baseline.children[childId].absolute;
+      const after = live.children[childId].absolute;
+      expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeLessThan(0.5);
     }
   });
 });
