@@ -88,6 +88,27 @@ export interface WorkPackageLayoutModel {
 
 export type ResizeCorner = "nw" | "ne" | "sw" | "se";
 
+export interface ResizeLooseEdges {
+  west: boolean;
+  east: boolean;
+  north: boolean;
+  south: boolean;
+}
+
+/** Frozen at pointer-down so a resize gesture does not re-snap edges mid-drag. */
+export interface ResizeChildConstraints {
+  childrenBox: VisualBox | null;
+  edgeClearance: number;
+  looseEdges: ResizeLooseEdges;
+}
+
+export const ALL_LOOSE_EDGES: ResizeLooseEdges = {
+  west: true,
+  east: true,
+  north: true,
+  south: true,
+};
+
 export function cloneLayoutModel(model: WorkPackageLayoutModel): WorkPackageLayoutModel {
   const nodes = new Map<string, LayoutNode>();
   for (const [id, node] of model.nodes) {
@@ -430,15 +451,34 @@ export function parentOuterBoundsFromChildFit(
   };
 }
 
+export function resizeLooseEdgesFromOuter(
+  outer: VisualBox,
+  childrenBox: VisualBox,
+  edgeClearance: number,
+): ResizeLooseEdges {
+  const bounds = parentOuterBoundsFromChildFit(childrenBox, edgeClearance);
+  const epsilon = 1e-6;
+  return {
+    west: outer.x1 < bounds.x1 - epsilon,
+    east: outer.x2 > bounds.x2 + epsilon,
+    north: outer.y1 < bounds.y1 - epsilon,
+    south: outer.y2 > bounds.y2 + epsilon,
+  };
+}
+
 export function resizeCompoundBoxFromCorner(
   startBox: VisualBox,
   corner: ResizeCorner,
   dxModel: number,
   dyModel: number,
-  childrenBox: VisualBox | null,
-  edgeClearance: number,
+  constraints: ResizeChildConstraints,
 ): VisualBox {
+  if (Math.abs(dxModel) < 1e-9 && Math.abs(dyModel) < 1e-9) {
+    return { ...startBox };
+  }
+
   let { x1, y1, x2, y2 } = startBox;
+  const { childrenBox, edgeClearance } = constraints;
 
   const movesEast = corner === "ne" || corner === "se";
   const movesWest = corner === "nw" || corner === "sw";
@@ -453,29 +493,21 @@ export function resizeCompoundBoxFromCorner(
   if (movesEast) {
     x2 = startBox.x2 + dxModel;
     x2 = Math.max(x2, maxRight ?? x1 + COMPOUND_MIN_WIDTH);
-  } else if (maxRight !== null && x2 > maxRight) {
-    x2 = maxRight;
   }
 
   if (movesWest) {
     x1 = startBox.x1 + dxModel;
     x1 = Math.min(x1, minLeft ?? x2 - COMPOUND_MIN_WIDTH);
-  } else if (minLeft !== null && x1 < minLeft) {
-    x1 = minLeft;
   }
 
   if (movesSouth) {
     y2 = startBox.y2 + dyModel;
     y2 = Math.max(y2, maxBottom ?? y1 + COMPOUND_MIN_HEIGHT);
-  } else if (maxBottom !== null && y2 > maxBottom) {
-    y2 = maxBottom;
   }
 
   if (movesNorth) {
     y1 = startBox.y1 + dyModel;
     y1 = Math.min(y1, minTop ?? y2 - COMPOUND_MIN_HEIGHT);
-  } else if (minTop !== null && y1 < minTop) {
-    y1 = minTop;
   }
 
   if (!childrenBox) {
@@ -613,7 +645,7 @@ export function resizeComposite(
   corner: ResizeCorner,
   dxModel: number,
   dyModel: number,
-  childrenFitBoxOverride?: VisualBox | null,
+  constraints?: ResizeChildConstraints,
 ): WorkPackageLayoutModel {
   const next = cloneLayoutModel(model);
   const node = next.nodes.get(compositeId);
@@ -622,18 +654,22 @@ export function resizeComposite(
     return next;
   }
 
-  const edgeClearance = compositeEdgeClearance(next, compositeId);
-  const childrenBox =
-    childrenFitBoxOverride !== undefined
-      ? childrenFitBoxOverride
-      : childrenFitBoxAbsolute(next, compositeId);
+  const resolvedConstraints =
+    constraints ??
+    ({
+      childrenBox: childrenFitBoxAbsolute(next, compositeId),
+      edgeClearance: compositeEdgeClearance(next, compositeId),
+      looseEdges: ALL_LOOSE_EDGES,
+    } satisfies ResizeChildConstraints);
+  if (resolvedConstraints.edgeClearance !== undefined) {
+    node.reservedEdge = resolvedConstraints.edgeClearance;
+  }
   const proposedOuter = resizeCompoundBoxFromCorner(
     startOuter,
     corner,
     dxModel,
     dyModel,
-    childrenBox,
-    edgeClearance,
+    resolvedConstraints,
   );
   const clampedOuter = resolveResizeBoxAgainstObstacles(
     startOuter,

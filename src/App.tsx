@@ -31,7 +31,7 @@ import {
   type RenderedBoxRect,
   type Scenario,
 } from "./lib/compound-graph";
-import { type ResizeCorner } from "./lib/layout-model";
+import { type ResizeCorner, type ResizeChildConstraints } from "./lib/layout-model";
 
 type ResizeTiming = "live" | "deferred";
 
@@ -44,6 +44,7 @@ const SYNC_MODES: { id: SyncMode; label: string }[] = [
 const CORNERS: ResizeCorner[] = ["nw", "ne", "sw", "se"];
 const HANDLE_SIZE = 12;
 const HANDLE_GAP = 8;
+const RESIZE_MOVE_THRESHOLD_PX = 2;
 
 const CORNER_CURSOR: Record<ResizeCorner, string> = {
   nw: "nwse-resize",
@@ -270,7 +271,9 @@ export function App() {
     startClientY: number;
     zoom: number;
     startModel: ReturnType<typeof DEMO_COMPOUND.cloneModel>;
+    constraints: ResizeChildConstraints;
     baseline: GraphSnapshot;
+    moved: boolean;
   } | null>(null);
 
   const [scenario, setScenario] = useState<Scenario>("measured");
@@ -555,7 +558,7 @@ export function App() {
 
       const dxModel = (clientX - active.startClientX) / active.zoom;
       const dyModel = (clientY - active.startClientY) / active.zoom;
-      compound.resizeFromCorner(active.corner, dxModel, dyModel, active.startModel, cy);
+      compound.resizeFromCorner(active.corner, dxModel, dyModel, active.startModel, active.constraints);
 
       if (resizeTiming === "live") {
         compound.syncToCy(cy);
@@ -575,12 +578,13 @@ export function App() {
         return;
       }
 
-      applyResize(clientX, clientY);
-
-      if (resizeTiming === "deferred") {
-        compound.syncToCy(cy);
-        recomputeHandles();
-        refreshDebug();
+      if (active.moved) {
+        if (resizeTiming === "deferred") {
+          applyResize(clientX, clientY);
+          compound.syncToCy(cy);
+          recomputeHandles();
+          refreshDebug();
+        }
       }
 
       resizeStartRef.current = null;
@@ -597,7 +601,8 @@ export function App() {
 
       compound.ensureModelFromCy(cy);
       refreshInteriorClearances();
-      compound.refreshFootprintsFromCy(cy);
+
+      const constraints = compound.computeResizeChildConstraints(cy);
 
       event.preventDefault();
       event.stopPropagation();
@@ -612,7 +617,9 @@ export function App() {
         startClientY: event.clientY,
         zoom: cy.zoom(),
         startModel: compound.cloneModel(),
+        constraints,
         baseline: baselineSnap,
+        moved: false,
       };
     },
     [compound, refreshInteriorClearances],
@@ -780,9 +787,16 @@ export function App() {
                     }}
                     onPointerDown={onHandlePointerDown(corner)}
                     onPointerMove={(event) => {
-                      if (!resizeStartRef.current) {
+                      const active = resizeStartRef.current;
+                      if (!active) {
                         return;
                       }
+                      const dxPx = event.clientX - active.startClientX;
+                      const dyPx = event.clientY - active.startClientY;
+                      if (Math.hypot(dxPx, dyPx) < RESIZE_MOVE_THRESHOLD_PX) {
+                        return;
+                      }
+                      active.moved = true;
                       event.preventDefault();
                       applyResize(event.clientX, event.clientY);
                     }}

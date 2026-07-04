@@ -8,6 +8,7 @@ import {
 import {
   CYTOSCAPE_STYLESHEET,
   CHILD_EDGE_CLEARANCE_PX,
+  COMPOUND_PADDING,
   LEAF_LABEL_COLOR,
   LEAF_LABEL_FONT_FAMILY,
   LEAF_LABEL_FONT_SIZE,
@@ -36,7 +37,9 @@ import {
   moveComposite,
   moveChild,
   resizeComposite,
+  resizeLooseEdgesFromOuter,
   type LayoutNodeInput,
+  type ResizeChildConstraints,
   type ResizeCorner,
   type WorkPackageLayoutModel,
 } from "./layout-model";
@@ -373,23 +376,41 @@ export class GraphParent {
     syncLeafFootprintsFromCy(cy, model, this.id);
   }
 
+  /** Snapshot child fit + which edges are still loose; frozen for one resize gesture. */
+  computeResizeChildConstraints(cy: Core): ResizeChildConstraints {
+    const model = this.ensureModelFromCy(cy);
+    syncLeafFootprintsFromCy(cy, model, this.id);
+    const zoom = cy.zoom();
+    const edgeClearance = zoom > 0 ? CHILD_EDGE_CLEARANCE_PX / zoom : COMPOUND_PADDING.left;
+    const parentNode = model.nodes.get(this.id);
+    if (parentNode) {
+      parentNode.reservedEdge = edgeClearance;
+    }
+    const childrenBox = childrenFitBoxAbsoluteFromCy(cy, model, this.id);
+    const outer = compositeOuterBox(model, this.id);
+    if (!childrenBox || !outer) {
+      return {
+        childrenBox,
+        edgeClearance,
+        looseEdges: { west: false, east: false, north: false, south: false },
+      };
+    }
+    return {
+      childrenBox,
+      edgeClearance,
+      looseEdges: resizeLooseEdgesFromOuter(outer, childrenBox, edgeClearance),
+    };
+  }
+
   /** Resize the compound from a corner drag in model coordinates. */
   resizeFromCorner(
     corner: ResizeCorner,
     dxModel: number,
     dyModel: number,
     startModel: WorkPackageLayoutModel,
-    cy: Core,
+    constraints: ResizeChildConstraints,
   ): void {
-    syncLeafFootprintsFromCy(cy, startModel, this.id);
-    const startParent = startModel.nodes.get(this.id);
-    const zoom = cy.zoom();
-    if (startParent && zoom > 0) {
-      startParent.reservedEdge = CHILD_EDGE_CLEARANCE_PX / zoom;
-    }
-    const fitModel = this.model ?? startModel;
-    const childrenBox = childrenFitBoxAbsoluteFromCy(cy, fitModel, this.id);
-    this.model = resizeComposite(startModel, this.id, corner, dxModel, dyModel, childrenBox);
+    this.model = resizeComposite(startModel, this.id, corner, dxModel, dyModel, constraints);
   }
 
   syncToCy(cy: Core): void {
