@@ -16,6 +16,8 @@ import {
   LEAF_LABEL_FONT_SIZE,
   LEAF_LABEL_FONT_WEIGHT,
   LEAF_LABEL_MARGIN_Y,
+  LEAF_LABEL_OUTLINE_COLOR,
+  LEAF_LABEL_OUTLINE_WIDTH,
   LEAF_NODE_DIAMETER,
   LEAF_SELECTION_OUTLINE_COLOR,
   LEAF_SELECTION_OUTLINE_WIDTH,
@@ -67,6 +69,9 @@ interface ChildVisualStyle {
   fontFamily: string;
   fontWeight: string;
   color: string;
+  labelOutlineWidth: number;
+  labelOutlineColor: string;
+  labelMarginY: number;
   nodeWidth: number;
   nodeHeight: number;
   selectionOutlineWidth: number;
@@ -78,6 +83,9 @@ const DEFAULT_CHILD_VISUAL_STYLE: ChildVisualStyle = {
   fontFamily: LEAF_LABEL_FONT_FAMILY,
   fontWeight: String(LEAF_LABEL_FONT_WEIGHT),
   color: LEAF_LABEL_COLOR,
+  labelOutlineWidth: LEAF_LABEL_OUTLINE_WIDTH,
+  labelOutlineColor: LEAF_LABEL_OUTLINE_COLOR,
+  labelMarginY: LEAF_LABEL_MARGIN_Y,
   nodeWidth: LEAF_NODE_DIAMETER,
   nodeHeight: LEAF_NODE_DIAMETER,
   selectionOutlineWidth: LEAF_SELECTION_OUTLINE_WIDTH,
@@ -100,6 +108,17 @@ function readComputedChildVisualStyle(
     fontFamily: labelStyle.fontFamily || LEAF_LABEL_FONT_FAMILY,
     fontWeight: labelStyle.fontWeight || String(LEAF_LABEL_FONT_WEIGHT),
     color: labelStyle.color || LEAF_LABEL_COLOR,
+    labelOutlineWidth: readCssLengthValue(
+      labelStyle.getPropertyValue("--child-label-outline-width"),
+      LEAF_LABEL_OUTLINE_WIDTH,
+    ),
+    labelOutlineColor:
+      labelStyle.getPropertyValue("--child-label-outline-color").trim() ||
+      LEAF_LABEL_OUTLINE_COLOR,
+    labelMarginY: readCssLengthValue(
+      labelStyle.getPropertyValue("--child-label-gap-y"),
+      LEAF_LABEL_MARGIN_Y,
+    ),
     nodeWidth: readCssLengthValue(nodeStyle.width, LEAF_NODE_DIAMETER),
     nodeHeight: readCssLengthValue(nodeStyle.height, LEAF_NODE_DIAMETER),
     selectionOutlineWidth: readCssLengthValue(
@@ -307,6 +326,12 @@ export function App() {
         node.data("labelFontFamily", childVisualStyle.fontFamily);
         node.data("labelFontWeight", childVisualStyle.fontWeight);
         node.data("labelColor", childVisualStyle.color);
+        node.data("labelOutlineWidth", childVisualStyle.labelOutlineWidth / referenceZoom);
+        node.data("labelOutlineColor", childVisualStyle.labelOutlineColor);
+        node.data(
+          "labelMarginY",
+          (childVisualStyle.labelMarginY + childVisualStyle.labelOutlineWidth) / referenceZoom,
+        );
         node.data("nodeWidth", childVisualStyle.nodeWidth / referenceZoom);
         node.data("nodeHeight", childVisualStyle.nodeHeight / referenceZoom);
         node.data("selectionOutlineWidth", childVisualStyle.selectionOutlineWidth / referenceZoom);
@@ -704,7 +729,7 @@ export function App() {
                 <div
                   className="child-drag-label"
                   style={{
-                    top: `${childDragVisual.zoomScale * (childVisualStyleRef.current.nodeHeight / 2 + LEAF_LABEL_MARGIN_Y)}px`,
+                    top: `${childDragVisual.zoomScale * (childVisualStyleRef.current.nodeHeight / 2 + childVisualStyleRef.current.labelMarginY + childVisualStyleRef.current.labelOutlineWidth)}px`,
                     transform: `translateX(-50%) scale(${childDragVisual.zoomScale})`,
                   }}
                 >

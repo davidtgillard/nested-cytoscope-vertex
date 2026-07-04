@@ -134,20 +134,22 @@ body {
 }
 
 .child-drag-label {
+  --child-label-gap-y: 12px;
+  --child-label-outline-width: 2px;
+  --child-label-outline-color: #0f172a;
   position: absolute;
   left: 0;
   /* This font-size is read back at runtime and mirrored into Cytoscape's canvas label, so
-     editing it here changes both the drag ghost and the real child label. */
+     editing it here changes both the drag ghost and the real child label. The same is
+     true for `--child-label-gap-y`, `--child-label-outline-width`, and
+     `--child-label-outline-color`, which mirror into Cytoscape's label rendering. */
   font-family: "Helvetica Neue", Helvetica, sans-serif;
   font-size: 35px;
   line-height: 1;
   color: #e2e8f0;
   transform-origin: top center;
   text-shadow:
-    0 0 1px #0f172a,
-    0 0 1px #0f172a,
-    0 0 1px #0f172a,
-    0 0 1px #0f172a;
+    0 0 var(--child-label-outline-width) var(--child-label-outline-color);
   white-space: nowrap;
 }
 

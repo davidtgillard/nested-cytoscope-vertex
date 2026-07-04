@@ -20,6 +20,8 @@ export const LEAF_LABEL_FONT_SIZE = 11;
 export const LEAF_LABEL_FONT_FAMILY = '"Helvetica Neue", Helvetica, sans-serif';
 export const LEAF_LABEL_FONT_WEIGHT = 400;
 export const LEAF_LABEL_COLOR = "#e2e8f0";
+export const LEAF_LABEL_OUTLINE_WIDTH = 2;
+export const LEAF_LABEL_OUTLINE_COLOR = "#0f172a";
 export const LEAF_SELECTION_OUTLINE_WIDTH = 3;
 export const LEAF_SELECTION_OUTLINE_COLOR = "#38bdf8";
 
@@ -59,8 +61,6 @@ export const CYTOSCAPE_STYLESHEET: StylesheetStyle[] = [
     style: {
       label: "data(label)",
       color: LEAF_LABEL_COLOR,
-      "text-outline-color": "#0f172a",
-      "text-outline-width": 2,
     },
   },
   {
@@ -70,9 +70,11 @@ export const CYTOSCAPE_STYLESHEET: StylesheetStyle[] = [
       "font-family": "data(labelFontFamily)",
       "font-weight": "data(labelFontWeight)",
       color: "data(labelColor)",
+      "text-outline-color": "data(labelOutlineColor)",
+      "text-outline-width": "data(labelOutlineWidth)",
       "text-valign": "bottom",
       "text-halign": "center",
-      "text-margin-y": LEAF_LABEL_MARGIN_Y,
+      "text-margin-y": "data(labelMarginY)",
       "text-wrap": "wrap",
       "text-max-width": "120px",
       "background-color": "data(color)",
