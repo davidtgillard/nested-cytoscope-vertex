@@ -17,6 +17,8 @@ import {
   LEAF_LABEL_FONT_WEIGHT,
   LEAF_LABEL_MARGIN_Y,
   LEAF_NODE_DIAMETER,
+  LEAF_SELECTION_OUTLINE_COLOR,
+  LEAF_SELECTION_OUTLINE_WIDTH,
 } from "./lib/cytoscape-theme";
 import { snapshotDelta, type GraphSnapshot } from "./lib/cytoscape-utils";
 import {
@@ -55,34 +57,58 @@ function formatDelta(dx: number, dy: number): string {
   return `${dx.toFixed(2)}, ${dy.toFixed(2)} (${mag.toFixed(2)})`;
 }
 
-function readCssPixelValue(element: HTMLElement | null, fallback: number): number {
-  if (!element) {
-    return fallback;
-  }
-  const parsed = Number.parseFloat(window.getComputedStyle(element).fontSize);
+function readCssLengthValue(value: string, fallback: number): number {
+  const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function readComputedTextStyle(element: HTMLElement | null): {
+interface ChildVisualStyle {
   fontSize: number;
   fontFamily: string;
   fontWeight: string;
   color: string;
-} {
-  if (!element) {
-    return {
-      fontSize: LEAF_LABEL_FONT_SIZE,
-      fontFamily: LEAF_LABEL_FONT_FAMILY,
-      fontWeight: String(LEAF_LABEL_FONT_WEIGHT),
-      color: LEAF_LABEL_COLOR,
-    };
+  nodeWidth: number;
+  nodeHeight: number;
+  selectionOutlineWidth: number;
+  selectionOutlineColor: string;
+}
+
+const DEFAULT_CHILD_VISUAL_STYLE: ChildVisualStyle = {
+  fontSize: LEAF_LABEL_FONT_SIZE,
+  fontFamily: LEAF_LABEL_FONT_FAMILY,
+  fontWeight: String(LEAF_LABEL_FONT_WEIGHT),
+  color: LEAF_LABEL_COLOR,
+  nodeWidth: LEAF_NODE_DIAMETER,
+  nodeHeight: LEAF_NODE_DIAMETER,
+  selectionOutlineWidth: LEAF_SELECTION_OUTLINE_WIDTH,
+  selectionOutlineColor: LEAF_SELECTION_OUTLINE_COLOR,
+};
+
+function readComputedChildVisualStyle(
+  labelElement: HTMLElement | null,
+  nodeElement: HTMLElement | null,
+  selectedNodeElement: HTMLElement | null,
+): ChildVisualStyle {
+  if (!labelElement || !nodeElement || !selectedNodeElement) {
+    return DEFAULT_CHILD_VISUAL_STYLE;
   }
-  const style = window.getComputedStyle(element);
+  const labelStyle = window.getComputedStyle(labelElement);
+  const nodeStyle = window.getComputedStyle(nodeElement);
+  const selectedNodeStyle = window.getComputedStyle(selectedNodeElement);
   return {
-    fontSize: readCssPixelValue(element, LEAF_LABEL_FONT_SIZE),
-    fontFamily: style.fontFamily || LEAF_LABEL_FONT_FAMILY,
-    fontWeight: style.fontWeight || String(LEAF_LABEL_FONT_WEIGHT),
-    color: style.color || LEAF_LABEL_COLOR,
+    fontSize: readCssLengthValue(labelStyle.fontSize, LEAF_LABEL_FONT_SIZE),
+    fontFamily: labelStyle.fontFamily || LEAF_LABEL_FONT_FAMILY,
+    fontWeight: labelStyle.fontWeight || String(LEAF_LABEL_FONT_WEIGHT),
+    color: labelStyle.color || LEAF_LABEL_COLOR,
+    nodeWidth: readCssLengthValue(nodeStyle.width, LEAF_NODE_DIAMETER),
+    nodeHeight: readCssLengthValue(nodeStyle.height, LEAF_NODE_DIAMETER),
+    selectionOutlineWidth: readCssLengthValue(
+      selectedNodeStyle.getPropertyValue("--child-selection-ring-width"),
+      LEAF_SELECTION_OUTLINE_WIDTH,
+    ),
+    selectionOutlineColor:
+      selectedNodeStyle.getPropertyValue("--child-selection-ring-color").trim() ||
+      LEAF_SELECTION_OUTLINE_COLOR,
   };
 }
 
@@ -210,10 +236,13 @@ function wireDetachedDragListeners(
 export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const childLabelProbeRef = useRef<HTMLDivElement>(null);
+  const childNodeProbeRef = useRef<HTMLDivElement>(null);
+  const childSelectedNodeProbeRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const compoundRef = useRef(DEMO_COMPOUND);
   const childDragCleanupRef = useRef<(() => void) | null>(null);
-  const childLabelStyleSignatureRef = useRef("");
+  const childVisualStyleSignatureRef = useRef("");
+  const childVisualStyleRef = useRef<ChildVisualStyle>(DEFAULT_CHILD_VISUAL_STYLE);
   const referenceZoomRef = useRef(1);
   const resizeStartRef = useRef<{
     corner: ResizeCorner;
@@ -263,31 +292,44 @@ export function App() {
     setHandleRect(compound.renderedHandleBox(cy));
   }, [compound]);
 
-  const applyConfiguredChildLabelStyle = useCallback((cy: Core): void => {
-    const labelStyle = readComputedTextStyle(childLabelProbeRef.current);
+  const applyConfiguredChildVisualStyle = useCallback((cy: Core): void => {
+    const childVisualStyle = readComputedChildVisualStyle(
+      childLabelProbeRef.current,
+      childNodeProbeRef.current,
+      childSelectedNodeProbeRef.current,
+    );
     const referenceZoom = referenceZoomRef.current > 0 ? referenceZoomRef.current : 1;
-    childLabelStyleSignatureRef.current = JSON.stringify(labelStyle);
+    childVisualStyleRef.current = childVisualStyle;
+    childVisualStyleSignatureRef.current = JSON.stringify(childVisualStyle);
     cy.batch(() => {
       cy.nodes("[kind = 'leaf']").forEach((node) => {
-        node.data("labelFontSize", labelStyle.fontSize / referenceZoom);
-        node.data("labelFontFamily", labelStyle.fontFamily);
-        node.data("labelFontWeight", labelStyle.fontWeight);
-        node.data("labelColor", labelStyle.color);
+        node.data("labelFontSize", childVisualStyle.fontSize / referenceZoom);
+        node.data("labelFontFamily", childVisualStyle.fontFamily);
+        node.data("labelFontWeight", childVisualStyle.fontWeight);
+        node.data("labelColor", childVisualStyle.color);
+        node.data("nodeWidth", childVisualStyle.nodeWidth / referenceZoom);
+        node.data("nodeHeight", childVisualStyle.nodeHeight / referenceZoom);
+        node.data("selectionOutlineWidth", childVisualStyle.selectionOutlineWidth / referenceZoom);
+        node.data("selectionOutlineColor", childVisualStyle.selectionOutlineColor);
       });
     });
   }, []);
 
-  const syncConfiguredChildLabelStyle = useCallback(
+  const syncConfiguredChildVisualStyle = useCallback(
     (cy: Core): boolean => {
-      const nextStyle = readComputedTextStyle(childLabelProbeRef.current);
+      const nextStyle = readComputedChildVisualStyle(
+        childLabelProbeRef.current,
+        childNodeProbeRef.current,
+        childSelectedNodeProbeRef.current,
+      );
       const nextSignature = JSON.stringify(nextStyle);
-      if (nextSignature === childLabelStyleSignatureRef.current) {
+      if (nextSignature === childVisualStyleSignatureRef.current) {
         return false;
       }
-      applyConfiguredChildLabelStyle(cy);
+      applyConfiguredChildVisualStyle(cy);
       return true;
     },
-    [applyConfiguredChildLabelStyle],
+    [applyConfiguredChildVisualStyle],
   );
 
   /**
@@ -321,16 +363,18 @@ export function App() {
   }, [compound, syncMode]);
 
   useEffect(() => {
-    const probe = childLabelProbeRef.current;
-    if (!probe || typeof ResizeObserver === "undefined") {
+    const labelProbe = childLabelProbeRef.current;
+    const nodeProbe = childNodeProbeRef.current;
+    const selectedNodeProbe = childSelectedNodeProbeRef.current;
+    if (!labelProbe || !nodeProbe || !selectedNodeProbe || typeof ResizeObserver === "undefined") {
       return;
     }
-    const observer = new ResizeObserver(() => {
+    const syncFromCss = () => {
       const cy = cyRef.current;
       if (!cy) {
         return;
       }
-      if (!syncConfiguredChildLabelStyle(cy)) {
+      if (!syncConfiguredChildVisualStyle(cy)) {
         return;
       }
       if (scenario === "measured") {
@@ -338,10 +382,28 @@ export function App() {
         return;
       }
       refreshDebug();
+    };
+    const resizeObserver = new ResizeObserver(syncFromCss);
+    resizeObserver.observe(labelProbe);
+    resizeObserver.observe(nodeProbe);
+    resizeObserver.observe(selectedNodeProbe);
+    const mutationObserver =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(() => {
+            syncFromCss();
+          });
+    mutationObserver?.observe(document.head, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
     });
-    observer.observe(probe);
-    return () => observer.disconnect();
-  }, [refreshDebug, scenario, syncConfiguredChildLabelStyle]);
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver?.disconnect();
+    };
+  }, [refreshDebug, scenario, syncConfiguredChildVisualStyle]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -354,7 +416,7 @@ export function App() {
 
     cy.ready(() => {
       referenceZoomRef.current = cy.zoom() > 0 ? cy.zoom() : 1;
-      applyConfiguredChildLabelStyle(cy);
+      applyConfiguredChildVisualStyle(cy);
       const snap = compound.initializeFromCy(cy, scenario, preserveOnMeasure);
       setBaseline(snap);
       setLiveSnapshot(snap);
@@ -363,7 +425,7 @@ export function App() {
     });
 
     const onRender = () => {
-      syncConfiguredChildLabelStyle(cy);
+      syncConfiguredChildVisualStyle(cy);
       recomputeHandles();
       if (!compound.isChildDragInProgress()) {
         refreshDebug();
@@ -450,9 +512,9 @@ export function App() {
       childDragCleanupRef.current = null;
       cy.destroy();
       cyRef.current = null;
-      childLabelStyleSignatureRef.current = "";
+      childVisualStyleSignatureRef.current = "";
     };
-  }, [applyConfiguredChildLabelStyle, graphKey, preserveOnMeasure, recomputeHandles, refreshDebug, scenario, compound, syncConfiguredChildLabelStyle]);
+  }, [applyConfiguredChildVisualStyle, graphKey, preserveOnMeasure, recomputeHandles, refreshDebug, scenario, compound, syncConfiguredChildVisualStyle]);
 
   const applyResize = useCallback(
     (clientX: number, clientY: number) => {
@@ -592,9 +654,11 @@ export function App() {
         </div>
 
         <div className="graph-shell">
-          <div ref={childLabelProbeRef} className="child-drag-label label-style-probe">
+          <div ref={childLabelProbeRef} className="child-drag-label style-probe">
             {compound.child.label}
           </div>
+          <div ref={childNodeProbeRef} className="child-drag-node style-probe" />
+          <div ref={childSelectedNodeProbeRef} className="child-drag-node is-selected style-probe" />
           <div
             className={`graph-viewport${childDragVisual ? " graph-viewport-dragging" : ""}`}
             ref={containerRef}
@@ -634,13 +698,13 @@ export function App() {
                   className="child-drag-node is-selected"
                   style={{
                     backgroundColor: childDragVisual.color,
-                    transform: `translate(-50%, -50%) scale(${childDragVisual.zoom})`,
+                    transform: `translate(-50%, -50%) scale(${childDragVisual.zoomScale})`,
                   }}
                 />
                 <div
                   className="child-drag-label"
                   style={{
-                    top: `${childDragVisual.zoom * (LEAF_NODE_DIAMETER / 2 + LEAF_LABEL_MARGIN_Y)}px`,
+                    top: `${childDragVisual.zoomScale * (childVisualStyleRef.current.nodeHeight / 2 + LEAF_LABEL_MARGIN_Y)}px`,
                     transform: `translateX(-50%) scale(${childDragVisual.zoomScale})`,
                   }}
                 >

@@ -115,27 +115,22 @@ body {
   height: 0;
 }
 
-/* width/height must match LEAF_NODE_DIAMETER in cytoscape-theme.ts */
+/* Width/height are read back at runtime and mirrored into Cytoscape's canvas node. */
 .child-drag-node {
+  --child-selection-ring-width: 5px;
+  --child-selection-ring-color: #38bdf8;
   position: absolute;
   left: 0;
   top: 0;
-  width: 36px;
-  height: 36px;
+  width: 60px;
+  height: 60px;
   border-radius: 999px;
   transform-origin: center center;
 }
 
-/*
- * Mirrors node[kind = 'leaf']:selected in cytoscape-theme.ts (border-width 3, #38bdf8).
- * Cytoscape draws that border as a stroke centered on the shape's edge, so the node's
- * outer diameter barely changes while the visible colored fill shrinks slightly. Using a
- * real `border` here (box-sizing: border-box is set globally) reproduces that: the fixed
- * 36px box stays put and the border eats inward, instead of a box-shadow which sits
- * entirely outside the box and would make the ghost look bigger than the real node.
- */
+/* The selected ring lives outside the circle, so selection doesn't shrink the fill. */
 .child-drag-node.is-selected {
-  border: 3px solid #38bdf8;
+  box-shadow: 0 0 0 var(--child-selection-ring-width) var(--child-selection-ring-color);
 }
 
 .child-drag-label {
@@ -156,7 +151,9 @@ body {
   white-space: nowrap;
 }
 
-.label-style-probe {
+.style-probe {
+  position: absolute;
+  left: -9999px;
   top: -9999px;
   visibility: hidden;
   pointer-events: none;

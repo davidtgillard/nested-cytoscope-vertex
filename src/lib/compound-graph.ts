@@ -11,6 +11,9 @@ import {
   LEAF_LABEL_FONT_FAMILY,
   LEAF_LABEL_FONT_SIZE,
   LEAF_LABEL_FONT_WEIGHT,
+  LEAF_NODE_DIAMETER,
+  LEAF_SELECTION_OUTLINE_COLOR,
+  LEAF_SELECTION_OUTLINE_WIDTH,
 } from "./cytoscape-theme";
 import {
   INITIAL_COMPOUND_SLACK,
@@ -96,6 +99,10 @@ export class GraphChild {
         labelFontFamily: LEAF_LABEL_FONT_FAMILY,
         labelFontWeight: LEAF_LABEL_FONT_WEIGHT,
         labelColor: LEAF_LABEL_COLOR,
+        nodeWidth: LEAF_NODE_DIAMETER,
+        nodeHeight: LEAF_NODE_DIAMETER,
+        selectionOutlineWidth: LEAF_SELECTION_OUTLINE_WIDTH,
+        selectionOutlineColor: LEAF_SELECTION_OUTLINE_COLOR,
       },
       position: { ...PRESET_LAYOUT.child },
     };

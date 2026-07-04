@@ -20,6 +20,8 @@ export const LEAF_LABEL_FONT_SIZE = 11;
 export const LEAF_LABEL_FONT_FAMILY = '"Helvetica Neue", Helvetica, sans-serif';
 export const LEAF_LABEL_FONT_WEIGHT = 400;
 export const LEAF_LABEL_COLOR = "#e2e8f0";
+export const LEAF_SELECTION_OUTLINE_WIDTH = 3;
+export const LEAF_SELECTION_OUTLINE_COLOR = "#38bdf8";
 
 /**
  * How close a child's measured footprint may get to the parent's border (all four
@@ -74,8 +76,8 @@ export const CYTOSCAPE_STYLESHEET: StylesheetStyle[] = [
       "text-wrap": "wrap",
       "text-max-width": "120px",
       "background-color": "data(color)",
-      width: LEAF_NODE_DIAMETER,
-      height: LEAF_NODE_DIAMETER,
+      width: "data(nodeWidth)",
+      height: "data(nodeHeight)",
       shape: "ellipse",
       "z-index": 10,
     } as unknown) as StylesheetStyle["style"],
@@ -102,11 +104,13 @@ export const CYTOSCAPE_STYLESHEET: StylesheetStyle[] = [
   },
   {
     selector: "node[kind = 'leaf']:selected",
-    style: {
-      "border-width": 3,
-      "border-color": "#38bdf8",
-      "border-opacity": 1,
-    },
+    style: ({
+      "border-width": 0,
+      "underlay-color": "data(selectionOutlineColor)",
+      "underlay-opacity": 1,
+      "underlay-padding": "data(selectionOutlineWidth)",
+      "underlay-shape": "ellipse",
+    } as unknown) as StylesheetStyle["style"],
   },
   {
     selector: "edge",
