@@ -3,7 +3,6 @@ import {
   type CSSProperties,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -11,12 +10,9 @@ import {
 import {
   DEFAULT_COMPOUND_GRAPH_THEME,
   leafDomVisualStyle,
-  snapshotDelta,
   type ChildDragVisual,
-  type GraphSnapshot,
   type LeafDomVisualStyle,
   type ParentDragVisual,
-  type RenderedBoxRect,
   type ResizeChildConstraints,
   type ResizeCorner,
 } from "@dgillard/nested-cytoscope-vertex";
@@ -33,14 +29,6 @@ const CORNER_CURSOR: Record<ResizeCorner, string> = {
   sw: "nesw-resize",
   se: "nwse-resize",
 };
-
-function formatDelta(dx: number, dy: number): string {
-  const mag = Math.hypot(dx, dy);
-  if (mag < 0.05) {
-    return "0";
-  }
-  return `${dx.toFixed(2)}, ${dy.toFixed(2)} (${mag.toFixed(2)})`;
-}
 
 function readCssLengthValue(value: string, fallback: number): number {
   const parsed = Number.parseFloat(value);
@@ -108,7 +96,6 @@ export function App() {
     zoom: number;
     startModel: ReturnType<typeof DEMO_COMPOUND.cloneModel>;
     constraints: ResizeChildConstraints;
-    baseline: GraphSnapshot;
     moved: boolean;
   } | null>(null);
 
@@ -119,27 +106,20 @@ export function App() {
     width: number;
     height: number;
   } | null>(null);
-  const [baseline, setBaseline] = useState<GraphSnapshot | null>(null);
-  const [liveSnapshot, setLiveSnapshot] = useState<GraphSnapshot | null>(null);
-  const [modelSnapshot, setModelSnapshot] = useState<string>("");
   const [childDragVisual, setChildDragVisual] = useState<ChildDragVisual | null>(null);
   const [parentDragVisual, setParentDragVisual] = useState<ParentDragVisual | null>(null);
-  const [minResizeVisual, setMinResizeVisual] = useState<RenderedBoxRect | null>(null);
 
   const compound = compoundRef.current;
   const probeChild = compound.children[0];
 
-  const refreshDebug = useCallback(() => {
+  const refreshOverlays = useCallback(() => {
     const cy = cyRef.current;
     if (!cy) {
       return;
     }
-    setLiveSnapshot(compound.liveSnapshot(cy));
-    setModelSnapshot(compound.modelDebugSnapshot());
     compound.refreshFootprintsFromCy(cy);
     setChildDragVisual(compound.childDragVisual(cy));
     setParentDragVisual(compound.parentDragVisual(cy));
-    setMinResizeVisual(compound.minResizeVisual(cy));
   }, [compound]);
 
   const recomputeHandles = useCallback(() => {
@@ -265,10 +245,8 @@ export function App() {
     cy.ready(() => {
       referenceZoomRef.current = cy.zoom() > 0 ? cy.zoom() : 1;
       applyConfiguredChildVisualStyle(cy);
-      const snap = compound.initializeFromCy(cy);
-      setBaseline(snap);
-      setLiveSnapshot(snap);
-      refreshDebug();
+      compound.initializeFromCy(cy);
+      refreshOverlays();
       recomputeHandles();
     });
 
@@ -276,41 +254,31 @@ export function App() {
       syncConfiguredChildVisualStyle(cy);
       recomputeHandles();
       if (!compound.isChildDragInProgress()) {
-        refreshDebug();
+        refreshOverlays();
       }
     };
     cy.on("render zoom pan", onRender);
 
     const onSelectionChange = () => {
       recomputeHandles();
-      refreshDebug();
+      refreshOverlays();
     };
     cy.on("select unselect", onSelectionChange);
 
     compound.attachChildDragHandlers(cy, {
-      onStart: (_childId, snap) => {
-        setBaseline(snap);
-        setLiveSnapshot(snap);
-        refreshDebug();
-      },
       onMove: () => {
-        refreshDebug();
+        refreshOverlays();
       },
       onEnd: () => {
         recomputeHandles();
-        refreshDebug();
+        refreshOverlays();
       },
     });
 
     compound.attachParentDragHandlers(cy, {
-      onGrab: (snap) => {
-        setBaseline(snap);
-        setLiveSnapshot(snap);
-        refreshDebug();
-      },
       onChange: () => {
         recomputeHandles();
-        refreshDebug();
+        refreshOverlays();
       },
     });
 
@@ -319,7 +287,7 @@ export function App() {
       cyRef.current = null;
       childVisualStyleSignatureRef.current = "";
     };
-  }, [applyConfiguredChildVisualStyle, graphKey, recomputeHandles, refreshDebug, compound, syncConfiguredChildVisualStyle]);
+  }, [applyConfiguredChildVisualStyle, graphKey, recomputeHandles, refreshOverlays, compound, syncConfiguredChildVisualStyle]);
 
   const applyResize = useCallback(
     (clientX: number, clientY: number) => {
@@ -334,9 +302,9 @@ export function App() {
       compound.resizeFromCorner(active.corner, dxModel, dyModel, active.startModel, active.constraints);
       compound.syncToCy(cy);
       recomputeHandles();
-      refreshDebug();
+      refreshOverlays();
     },
-    [compound, recomputeHandles, refreshDebug],
+    [compound, recomputeHandles, refreshOverlays],
   );
 
   const finishResize = useCallback(() => {
@@ -359,9 +327,6 @@ export function App() {
       event.stopPropagation();
       (event.target as HTMLElement).setPointerCapture(event.pointerId);
 
-      const baselineSnap = compound.snapshot(cy);
-      setBaseline(baselineSnap);
-
       resizeStartRef.current = {
         corner,
         startClientX: event.clientX,
@@ -369,19 +334,11 @@ export function App() {
         zoom: cy.zoom(),
         startModel: compound.cloneModel(),
         constraints,
-        baseline: baselineSnap,
         moved: false,
       };
     },
     [compound, refreshInteriorClearances],
   );
-
-  const deltas = useMemo(() => {
-    if (!baseline || !liveSnapshot) {
-      return null;
-    }
-    return snapshotDelta(baseline, liveSnapshot);
-  }, [baseline, liveSnapshot]);
 
   return (
     <div className="app">
@@ -423,18 +380,6 @@ export function App() {
                 {parentDragVisual.label}
               </div>
             </div>
-          ) : null}
-          {minResizeVisual ? (
-            <div
-              className="compound-min-resize-debug"
-              style={{
-                left: minResizeVisual.left,
-                top: minResizeVisual.top,
-                width: minResizeVisual.width,
-                height: minResizeVisual.height,
-              }}
-              title="Child rendered fit bounds (shape + label)"
-            />
           ) : null}
           {childDragVisual ? (
             <div className="child-drag-layer">
@@ -514,42 +459,6 @@ export function App() {
             : null}
         </div>
       </div>
-
-      <aside className="debug-panel">
-        <h1>Nested compound resize toy</h1>
-        <p>
-          Mirrors bellman-gui&apos;s <code>wp-invoicing</code> compound with{" "}
-          {compound.children.map((child, index) => (
-            <span key={child.id}>
-              {index > 0 ? ", " : null}
-              <code>{child.label}</code>
-            </span>
-          ))}
-          children. Drag a child or a corner handle and watch whether absolute coordinates drift.
-        </p>
-
-        <h2>Child absolute delta (since gesture start)</h2>
-        {deltas ? (
-          <pre>
-            {Object.entries(deltas).map(([id, delta]) => {
-              const bad = Math.hypot(delta.dx, delta.dy) > 0.5;
-              return (
-                <div key={id} className={bad ? "delta-bad" : "delta-ok"}>
-                  {id}: {formatDelta(delta.dx, delta.dy)}
-                </div>
-              );
-            })}
-          </pre>
-        ) : (
-          <pre>Drag a child or a handle to compare.</pre>
-        )}
-
-        <h2>Live Cytoscape snapshot</h2>
-        <pre>{liveSnapshot ? JSON.stringify(liveSnapshot, null, 2) : "…"}</pre>
-
-        <h2>Layout model (in memory)</h2>
-        <pre>{modelSnapshot || "…"}</pre>
-      </aside>
     </div>
   );
 }

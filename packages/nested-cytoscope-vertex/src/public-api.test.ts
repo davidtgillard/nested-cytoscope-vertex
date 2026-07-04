@@ -5,8 +5,8 @@ import {
   GraphParentVertex,
   createCompoundGraphStylesheet,
   leafDomVisualStyle,
-  snapshotDelta,
 } from "./index";
+import { snapshotDelta } from "./cytoscape-utils";
 
 const TEST_PARENT = GraphParentVertex.create({
   id: "parent",
@@ -50,15 +50,13 @@ describe("public API", () => {
     expect(snap.parent.h).toBeGreaterThan(0);
   });
 
-  it("visual helpers and debug snapshot work after initialization", () => {
+  it("visual helpers work after initialization", () => {
     const cy = headlessCy(TEST_PARENT.buildElements());
     TEST_PARENT.initializeFromCy(cy);
     cy.getElementById("parent").select();
 
     expect(TEST_PARENT.renderedHandleBox(cy)).not.toBeNull();
     expect(TEST_PARENT.parentDragVisual(cy)).not.toBeNull();
-    expect(TEST_PARENT.minResizeVisual(cy)).not.toBeNull();
-    expect(TEST_PARENT.modelDebugSnapshot()).toContain("parent");
     expect(TEST_PARENT.getChild("child-a")?.label).toBe("child-a");
   });
 
@@ -66,16 +64,72 @@ describe("public API", () => {
     const cy = headlessCy(TEST_PARENT.buildElements());
     TEST_PARENT.initializeFromCy(cy);
     let changed = false;
-    TEST_PARENT.attachParentDragHandlers(cy, { onChange: () => { changed = true; } });
+    let grabbed = false;
+    TEST_PARENT.attachParentDragHandlers(cy, {
+      onGrab: () => { grabbed = true; },
+      onChange: () => { changed = true; },
+    });
 
     const parent = cy.getElementById("parent");
     parent.trigger("grab");
+    expect(grabbed).toBe(true);
     parent.position({ x: 42, y: -18 });
     parent.trigger("drag");
     parent.trigger("free");
 
     expect(changed).toBe(true);
     expect(TEST_PARENT.getModel()?.nodes.get("parent")?.center.x).toBeCloseTo(42, 2);
+  });
+
+  it("attachParentDragHandlers ignores grab on the wrong node id", () => {
+    const cy = headlessCy(TEST_PARENT.buildElements());
+    TEST_PARENT.initializeFromCy(cy);
+    let grabbed = false;
+    TEST_PARENT.attachParentDragHandlers(cy, { onGrab: () => { grabbed = true; } });
+    cy.getElementById("child-a").trigger("grab");
+    expect(grabbed).toBe(false);
+  });
+
+  it("refreshFootprintsFromCy is a no-op before initialization", () => {
+    const fresh = GraphParentVertex.create({
+      id: "fresh-parent",
+      label: "fresh",
+      color: "#000",
+      children: [{ id: "fresh-child", label: "fresh-child", color: "#111" }],
+    });
+    const cy = headlessCy(fresh.buildElements());
+    fresh.refreshFootprintsFromCy(cy);
+    expect(fresh.getModel()).toBeNull();
+  });
+
+  it("refreshFootprintsFromCy syncs footprints after initialization", () => {
+    const cy = headlessCy(TEST_PARENT.buildElements());
+    TEST_PARENT.initializeFromCy(cy);
+    TEST_PARENT.refreshFootprintsFromCy(cy);
+    expect(TEST_PARENT.getModel()?.nodes.get("child-a")?.footprint).toBeDefined();
+  });
+
+  it("parentDragVisual returns null when the parent is absent from cy", () => {
+    const cy = headlessCy(TEST_PARENT.buildElements());
+    TEST_PARENT.initializeFromCy(cy);
+    cy.getElementById("parent").remove();
+    expect(TEST_PARENT.parentDragVisual(cy)).toBeNull();
+  });
+
+  it("liveSnapshot falls back to cy snapshot when drag metadata is incomplete", () => {
+    type ParentVertexInternals = {
+      childDragActive: boolean;
+      childDragSession: null;
+      model: null;
+    };
+    const cy = headlessCy(TEST_PARENT.buildElements());
+    TEST_PARENT.initializeFromCy(cy);
+    const internal = TEST_PARENT as typeof TEST_PARENT & ParentVertexInternals;
+    internal.childDragActive = true;
+    internal.childDragSession = null;
+    internal.model = null;
+    expect(TEST_PARENT.liveSnapshot(cy)).toEqual(TEST_PARENT.snapshot(cy));
+    internal.childDragActive = false;
   });
 
   it("liveSnapshot differs from snapshot during child drag", () => {
@@ -89,6 +143,11 @@ describe("public API", () => {
     TEST_PARENT.initializeFromCy(cy);
 
     parent.beginChildDrag(cy, "child-a");
+    expect(TEST_PARENT.isChildDragInProgress()).toBe(true);
+    const visual = TEST_PARENT.childDragVisual(cy);
+    expect(visual).not.toBeNull();
+    expect(visual!.label).toBe("child-a");
+
     parent.syncChildDragByDelta(cy, "child-a", { x: 20, y: 10 });
     const live = TEST_PARENT.liveSnapshot(cy);
     const snap = TEST_PARENT.snapshot(cy);
@@ -98,6 +157,7 @@ describe("public API", () => {
     );
     parent.finishChildDrag(cy);
     expect(TEST_PARENT.childDragVisual(cy)).toBeNull();
+    expect(TEST_PARENT.isChildDragInProgress()).toBe(false);
   });
 
   it("SE resize through GraphParentVertex preserves child absolutes", () => {

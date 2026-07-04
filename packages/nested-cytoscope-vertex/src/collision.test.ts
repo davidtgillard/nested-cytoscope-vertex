@@ -90,6 +90,17 @@ describe("collision", () => {
     });
     expect(detectCollision(boxForCenter(result)!, [obstacle])).toBe(false);
   });
+
+  it("resolvePosition returns center unchanged when boxForCenter returns null inside bounds", () => {
+    const bounds = { x1: 0, y1: 0, x2: 100, y2: 100 };
+    const result = resolvePosition({
+      from: { x: 50, y: 50 },
+      to: { x: 200, y: 200 },
+      bounds,
+      boxForCenter: () => null,
+    });
+    expect(result).toEqual({ x: 200, y: 200 });
+  });
 });
 
 describe("cytoscape-utils internals", () => {

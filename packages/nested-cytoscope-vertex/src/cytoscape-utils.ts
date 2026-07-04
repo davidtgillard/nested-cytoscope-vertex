@@ -278,10 +278,7 @@ export function snapshotGraphState(cy: Core, parentId: string, childIds: string[
   };
 }
 
-/**
- * Absolute-position deltas for each child between two {@link GraphSnapshot} values.
- * Useful for debug panels that detect drift during resize or drag gestures.
- */
+/** @internal Absolute-position deltas between two {@link GraphSnapshot} values. */
 export function snapshotDelta(
   before: GraphSnapshot,
   after: GraphSnapshot,

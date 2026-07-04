@@ -25,6 +25,11 @@ import {
   type GraphSnapshot,
 } from "./cytoscape-utils";
 import {
+  clientPointFromDomEvent,
+  clientPointFromOriginalEvent,
+  wireDetachedDragListeners,
+} from "./drag-listeners";
+import {
   absoluteCenter,
   cloneLayoutModel,
   compositeOuterBox,
@@ -65,8 +70,8 @@ export interface ParentDragVisual {
   zoomScale: number;
 }
 
-/** Screen-space axis-aligned rectangle in container pixel coordinates. */
-export interface RenderedBoxRect {
+/** Screen-space axis-aligned rectangle in container pixel coordinates. @internal */
+interface RenderedBoxRect {
   left: number;
   top: number;
   width: number;
@@ -218,27 +223,6 @@ export class GraphParentVertex {
     }
   }
 
-  /** JSON debug view of parent center/size and child absolute centers. */
-  modelDebugSnapshot(): string {
-    const model = this.model;
-    if (!model) {
-      return "";
-    }
-    return JSON.stringify(
-      {
-        parent: {
-          center: model.nodes.get(this.id)?.center,
-          size: model.nodes.get(this.id)?.size,
-        },
-        childrenAbs: Object.fromEntries(
-          this.childIds.map((childId) => [childId, absoluteCenter(model, childId)]),
-        ),
-      },
-      null,
-      2,
-    );
-  }
-
   /** Cytoscape element definitions for the container node and its leaf children. */
   buildElements(): cytoscape.ElementDefinition[] {
     return [
@@ -378,20 +362,6 @@ export class GraphParentVertex {
     };
   }
 
-  /** Debug overlay showing the minimum outer box implied by measured child footprints. */
-  minResizeVisual(cy: Core): RenderedBoxRect | null {
-    const model = this.model;
-    if (!model) {
-      return null;
-    }
-    syncLeafFootprintsFromCy(cy, model, this.id);
-    const box = childrenFitBoxAbsoluteFromCy(cy, model, this.id);
-    if (!box) {
-      return null;
-    }
-    return renderedBoxRect(cy, box);
-  }
-
   /** Refreshes measured leaf footprints from live Cytoscape label metrics. */
   refreshFootprintsFromCy(cy: Core): void {
     const model = this.model;
@@ -464,7 +434,6 @@ export class GraphParentVertex {
       onEnd?: () => void;
     },
   ): void {
-    /* v8 ignore start -- browser event wiring; covered by demo manual testing */
     const childIdSet = new Set(this.childIds);
     let dragCleanup: (() => void) | null = null;
 
@@ -520,7 +489,6 @@ export class GraphParentVertex {
     };
 
     cy.on("tapstart", "node[kind = 'leaf']", onChildDragStart);
-    /* v8 ignore stop */
   }
 
   /** Registers Cytoscape grab/drag/free handlers for the container node. */
@@ -790,127 +758,3 @@ function renderedBoxRect(
   };
 }
 
-/* v8 ignore start -- DOM pointer/touch listener glue; exercised manually via apps/demo */
-function clientPointFromDomEvent(
-  event: MouseEvent | PointerEvent | TouchEvent,
-): { clientX: number; clientY: number } | null {
-  if ("clientX" in event && "clientY" in event) {
-    return { clientX: event.clientX, clientY: event.clientY };
-  }
-  const touch = event.touches[0] ?? event.changedTouches[0];
-  if (!touch) {
-    return null;
-  }
-  return { clientX: touch.clientX, clientY: touch.clientY };
-}
-
-function clientPointFromOriginalEvent(
-  originalEvent: Event | undefined,
-): { clientX: number; clientY: number } | null {
-  if (!originalEvent) {
-    return null;
-  }
-  if (
-    originalEvent instanceof MouseEvent ||
-    originalEvent instanceof PointerEvent ||
-    originalEvent instanceof TouchEvent
-  ) {
-    return clientPointFromDomEvent(originalEvent);
-  }
-  return null;
-}
-
-function wireDetachedDragListeners(
-  originalEvent: Event | undefined,
-  onMove: (event: MouseEvent | PointerEvent | TouchEvent) => void,
-  onUp: (event: MouseEvent | PointerEvent | TouchEvent) => void,
-): () => void {
-  const pointerStartEvent = originalEvent instanceof PointerEvent ? originalEvent : null;
-  let active = true;
-  const pointerTarget =
-    pointerStartEvent && pointerStartEvent.target instanceof Element
-      ? pointerStartEvent.target
-      : null;
-
-  if (pointerStartEvent && pointerTarget && "setPointerCapture" in pointerTarget) {
-    try {
-      pointerTarget.setPointerCapture(pointerStartEvent.pointerId);
-    } catch {
-      // Ignore capture failures; the window listeners below are the real fallback.
-    }
-  }
-
-  const onPointerMove = (event: PointerEvent) => {
-    if (!active) {
-      return;
-    }
-    if (pointerStartEvent && event.pointerId !== pointerStartEvent.pointerId) {
-      return;
-    }
-    onMove(event);
-  };
-  const onPointerUp = (event: PointerEvent) => {
-    if (!active) {
-      return;
-    }
-    if (pointerStartEvent && event.pointerId !== pointerStartEvent.pointerId) {
-      return;
-    }
-    active = false;
-    onUp(event);
-  };
-  const onMouseMove = (event: MouseEvent) => {
-    if (!active) {
-      return;
-    }
-    onMove(event);
-  };
-  const onMouseUp = (event: MouseEvent) => {
-    if (!active) {
-      return;
-    }
-    active = false;
-    onUp(event);
-  };
-  const onTouchMove = (event: TouchEvent) => {
-    if (!active) {
-      return;
-    }
-    onMove(event);
-  };
-  const onTouchUp = (event: TouchEvent) => {
-    if (!active) {
-      return;
-    }
-    active = false;
-    onUp(event);
-  };
-
-  window.addEventListener("pointermove", onPointerMove, true);
-  window.addEventListener("pointerup", onPointerUp, true);
-  window.addEventListener("pointercancel", onPointerUp, true);
-  window.addEventListener("mousemove", onMouseMove, true);
-  window.addEventListener("mouseup", onMouseUp, true);
-  window.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
-  window.addEventListener("touchend", onTouchUp, { capture: true, passive: false });
-  window.addEventListener("touchcancel", onTouchUp, { capture: true, passive: false });
-  return () => {
-    active = false;
-    window.removeEventListener("pointermove", onPointerMove, true);
-    window.removeEventListener("pointerup", onPointerUp, true);
-    window.removeEventListener("pointercancel", onPointerUp, true);
-    window.removeEventListener("mousemove", onMouseMove, true);
-    window.removeEventListener("mouseup", onMouseUp, true);
-    window.removeEventListener("touchmove", onTouchMove, true);
-    window.removeEventListener("touchend", onTouchUp, true);
-    window.removeEventListener("touchcancel", onTouchUp, true);
-    if (pointerTarget && pointerStartEvent && "releasePointerCapture" in pointerTarget) {
-      try {
-        pointerTarget.releasePointerCapture(pointerStartEvent.pointerId);
-      } catch {
-        // Ignore release failures during cleanup.
-      }
-    }
-  };
-}
-/* v8 ignore stop */

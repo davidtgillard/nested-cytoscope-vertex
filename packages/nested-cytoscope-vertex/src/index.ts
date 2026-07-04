@@ -37,10 +37,9 @@ export {
   type GraphChildVertexSpec,
   type ChildDragVisual,
   type ParentDragVisual,
-  type RenderedBoxRect,
 } from "./compound-graph";
 
-export { type GraphSnapshot, snapshotDelta } from "./cytoscape-utils";
+export { type GraphSnapshot } from "./cytoscape-utils";
 
 export type { ResizeCorner, ResizeChildConstraints, ResizeLooseEdges } from "./layout-model";
 

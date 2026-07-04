@@ -15,8 +15,6 @@ body {
 }
 
 .app {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
   min-height: 100vh;
 }
 
@@ -81,15 +79,6 @@ body {
 
 .compound-parent-overlay.is-selected {
   border-color: #38bdf8;
-}
-
-.compound-min-resize-debug {
-  position: absolute;
-  z-index: 13;
-  border: 2px dashed #f97316;
-  border-radius: 12px;
-  pointer-events: none;
-  box-sizing: border-box;
 }
 
 .compound-parent-label {
@@ -178,48 +167,6 @@ body {
   border-radius: 2px;
   background: #0f172a;
   touch-action: none;
-}
-
-.debug-panel {
-  padding: 16px;
-  border-left: 1px solid #334155;
-  background: #111827;
-  overflow: auto;
-}
-
-.debug-panel h1 {
-  margin: 0 0 8px;
-  font-size: 18px;
-}
-
-.debug-panel p {
-  margin: 0 0 16px;
-  color: #94a3b8;
-  font-size: 13px;
-}
-
-.debug-panel h2 {
-  margin: 20px 0 8px;
-  font-size: 14px;
-  color: #cbd5e1;
-}
-
-.debug-panel pre {
-  margin: 0 0 12px;
-  padding: 10px;
-  border-radius: 8px;
-  background: #0f172a;
-  font-size: 12px;
-  overflow: auto;
-}
-
-.delta-bad {
-  color: #f87171;
-  font-weight: 600;
-}
-
-.delta-ok {
-  color: #4ade80;
 }
 
 .reset-button {
