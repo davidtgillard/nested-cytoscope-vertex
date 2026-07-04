@@ -10,6 +10,16 @@ export const COMPOUND_PADDING = {
 export const COMPOUND_MIN_WIDTH = 80;
 export const COMPOUND_MIN_HEIGHT = 80;
 
+/**
+ * The "container" node is NOT a real Cytoscape compound parent (it has no Cytoscape
+ * children). Cytoscape's compound-bounds system unavoidably re-anchors a compound's
+ * box to wherever its child currently sits (that's how `min-width-bias-*` works), so
+ * there is no way to keep a compound's box visually fixed while a lone child moves
+ * inside it. Instead, the container is a plain, explicitly-sized rectangle node whose
+ * own Cytoscape rendering is always fully transparent; the visible border/label are
+ * drawn by our own DOM overlay (driven by the layout model), and this node exists only
+ * so it can be grabbed/dragged like any other node.
+ */
 export const CYTOSCAPE_STYLESHEET: StylesheetStyle[] = [
   {
     selector: "node",
@@ -22,7 +32,7 @@ export const CYTOSCAPE_STYLESHEET: StylesheetStyle[] = [
     },
   },
   {
-    selector: "node:childless",
+    selector: "node[kind = 'leaf']",
     style: {
       "text-valign": "bottom",
       "text-halign": "center",
@@ -37,51 +47,31 @@ export const CYTOSCAPE_STYLESHEET: StylesheetStyle[] = [
     },
   },
   {
-    selector: ":parent",
+    selector: "node[kind = 'container']",
     style: {
-      "text-valign": "top",
-      "text-halign": "center",
-      "text-margin-y": -8,
-      "text-wrap": "wrap",
-      "text-max-width": "140px",
       shape: "round-rectangle",
       "background-opacity": 0,
-      "border-width": 2,
-      "border-color": "#64748b",
-      "border-opacity": 0.6,
-      padding: `${COMPOUND_PADDING.top}px ${COMPOUND_PADDING.right}px ${COMPOUND_PADDING.bottom}px ${COMPOUND_PADDING.left}px`,
-      "min-width": `${COMPOUND_MIN_WIDTH}px`,
-      "min-height": `${COMPOUND_MIN_HEIGHT}px`,
+      "border-width": 0,
+      "border-opacity": 0,
+      "text-opacity": 0,
+      width: COMPOUND_MIN_WIDTH,
+      height: COMPOUND_MIN_HEIGHT,
       "z-index": 0,
     },
   },
   {
-    selector: ":parent[compoundWidth]",
+    selector: "node[kind = 'container'][compoundWidth]",
     style: {
-      "min-width": "data(compoundWidth)",
-      "min-width-bias-left": "0%",
-      "min-width-bias-right": "100%",
-      "min-height": "data(compoundHeight)",
-      "min-height-bias-top": "0%",
-      "min-height-bias-bottom": "100%",
+      width: "data(compoundWidth)",
+      height: "data(compoundHeight)",
     } as StylesheetStyle["style"],
   },
   {
-    selector: "node:selected:childless",
+    selector: "node[kind = 'leaf']:selected",
     style: {
       "border-width": 3,
       "border-color": "#38bdf8",
       "border-opacity": 1,
-    },
-  },
-  {
-    selector: ":parent:selected",
-    style: {
-      "text-opacity": 0,
-      "border-width": 2,
-      "border-color": "#38bdf8",
-      "border-opacity": 1,
-      events: "no",
     },
   },
   {

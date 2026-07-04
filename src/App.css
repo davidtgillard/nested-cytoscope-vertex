@@ -57,11 +57,44 @@ body {
   position: relative;
   flex: 1;
   min-height: 480px;
+  background: #0f172a;
 }
 
 .graph-viewport {
   position: absolute;
   inset: 0;
+}
+
+.graph-viewport-dragging {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.compound-parent-overlay {
+  position: absolute;
+  z-index: 12;
+  border: 2px solid rgba(100, 116, 139, 0.6);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+.compound-parent-overlay.is-selected {
+  border-color: #38bdf8;
+}
+
+.compound-parent-label {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: #e2e8f0;
+  text-shadow:
+    0 0 1px #0f172a,
+    0 0 1px #0f172a,
+    0 0 1px #0f172a,
+    0 0 1px #0f172a;
+  white-space: nowrap;
 }
 
 .child-drag-layer {

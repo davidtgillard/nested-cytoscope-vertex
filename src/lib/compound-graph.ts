@@ -9,7 +9,6 @@ import { CYTOSCAPE_STYLESHEET } from "./cytoscape-theme";
 import {
   INITIAL_COMPOUND_SLACK,
   compoundAbsolutePosition,
-  compoundChromeRenderedBox,
   compoundSizeForContent,
   measureAndPinCompound,
   snapshotGraphState,
@@ -35,6 +34,15 @@ export interface ChildDragVisual {
   zoom: number;
   label: string;
   color: string;
+}
+
+export interface ParentDragVisual {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  label: string;
+  selected: boolean;
 }
 
 const PRESET_LAYOUT = {
@@ -64,7 +72,7 @@ export class GraphChild {
       data: {
         id: this.id,
         label: this.label,
-        parent: this.parent.id,
+        kind: "leaf",
         color: this.color,
       },
       position: { ...PRESET_LAYOUT.child },
@@ -89,6 +97,8 @@ export class GraphParent {
         parentAbsolute: { x: number; y: number };
         startChildAbsolute: { x: number; y: number };
         renderedOffset: { x: number; y: number };
+        previousAutoungrabify: boolean;
+        previousUserPanningEnabled: boolean;
       }
     | null = null;
 
@@ -151,6 +161,7 @@ export class GraphParent {
         data: {
           id: this.id,
           label: this.label,
+          kind: "container",
           color: this.color,
           ...(preset ? { compoundWidth: preset.w, compoundHeight: preset.h } : {}),
         },
@@ -160,12 +171,10 @@ export class GraphParent {
     ];
   }
 
-  /** Initial Cytoscape setup: measure or lock, then snapshot the authoritative model. */
-  initializeFromCy(cy: Core, scenario: Scenario, preserveChildAbsolute: boolean): GraphSnapshot {
+  /** Initial Cytoscape setup: measure (if needed), then snapshot the authoritative model. */
+  initializeFromCy(cy: Core, scenario: Scenario, centerContainerOnChild: boolean): GraphSnapshot {
     if (scenario === "measured") {
-      this.measureLikeBellman(cy, preserveChildAbsolute);
-    } else {
-      cy.getElementById(this.id).lock();
+      this.measureLikeBellman(cy, centerContainerOnChild);
     }
 
     this.syncModelFromCy(cy);
@@ -196,13 +205,7 @@ export class GraphParent {
     if (parent.empty() || !parent.selected()) {
       return null;
     }
-    const box = compoundChromeRenderedBox(parent);
-    return {
-      left: box.x1,
-      top: box.y1,
-      width: box.x2 - box.x1,
-      height: box.y2 - box.y1,
-    };
+    return this.renderedParentBoxFromModel(cy);
   }
 
   snapshot(cy: Core): GraphSnapshot {
@@ -253,6 +256,28 @@ export class GraphParent {
     };
   }
 
+  /**
+   * The visible parent border is always derived live from the model plus the current
+   * pan/zoom, so it tracks zoom/pan exactly like Cytoscape's own rendering does. The
+   * model's parent center/size do not change while a child is being dragged, so this
+   * naturally stays fixed in place during the gesture without needing a frozen snapshot.
+   */
+  parentDragVisual(cy: Core): ParentDragVisual | null {
+    const parent = cy.getElementById(this.id);
+    if (parent.empty()) {
+      return null;
+    }
+    const box = this.renderedParentBoxFromModel(cy);
+    if (!box) {
+      return null;
+    }
+    return {
+      ...box,
+      label: this.label,
+      selected: parent.selected(),
+    };
+  }
+
   /** Resize the compound from a corner drag in model coordinates. */
   resizeFromCorner(corner: ResizeCorner, dxModel: number, dyModel: number, startModel: WorkPackageLayoutModel): void {
     this.model = resizeComposite(startModel, this.id, corner, dxModel, dyModel);
@@ -263,6 +288,7 @@ export class GraphParent {
       return;
     }
     applyLayoutModelToCy(cy, this.model, this.syncMode);
+    this.pinParentToModel(cy);
     this.restoreChildVisibility(cy);
     this.enableDirectDragging(cy);
     this.configureDetachedChildDrag(cy);
@@ -273,7 +299,7 @@ export class GraphParent {
    * compound coordinates. During the gesture we only update the in-memory model; Cytoscape
    * is updated once at the end of the drag.
    */
-  syncChildDragByDelta(delta: { x: number; y: number }): void {
+  syncChildDragByDelta(cy: Core, delta: { x: number; y: number }): void {
     const session = this.childDragSession;
     if (!session || !this.childDragActive) {
       return;
@@ -284,6 +310,7 @@ export class GraphParent {
       y: session.startChildAbsolute.y + delta.y - session.parentAbsolute.y,
     });
     this.model = nextModel;
+    this.pinParentToModel(cy);
   }
 
   isChildDragInProgress(): boolean {
@@ -291,7 +318,7 @@ export class GraphParent {
   }
 
   beginChildDrag(cy: Core): void {
-    const model = this.syncModelFromCy(cy);
+    const model = this.ensureModelFromCy(cy);
     const cyChild = cy.getElementById(this.child.id);
     if (cyChild.empty()) {
       return;
@@ -301,6 +328,10 @@ export class GraphParent {
     const renderedCenter = cyChild.renderedPosition();
     const pan = cy.pan();
     const zoom = cy.zoom();
+    const parent = cy.getElementById(this.id);
+    if (parent.empty()) {
+      return;
+    }
     this.childDragActive = true;
     this.childDragSession = {
       startModel: cloneLayoutModel(model),
@@ -310,34 +341,41 @@ export class GraphParent {
         x: renderedCenter.x - (childAbsolute.x * zoom + pan.x),
         y: renderedCenter.y - (childAbsolute.y * zoom + pan.y),
       },
+      previousAutoungrabify: cy.autoungrabify(),
+      previousUserPanningEnabled: cy.userPanningEnabled(),
     };
 
-    const parent = cy.getElementById(this.id);
-    const child = cy.getElementById(this.child.id);
-    if (parent.empty() || child.empty()) {
-      return;
-    }
-    child.style("opacity", 0);
-    child.style("events", "no");
-    parent.ungrabify();
-    parent.lock();
+    cy.autoungrabify(true);
+    cy.userPanningEnabled(false);
+    cyChild.style("opacity", 0);
+    cyChild.style("events", "no");
+    this.pinParentToModel(cy);
   }
 
   /** Commit the dragged child position into the model and sync once. */
   finishChildDrag(cy: Core): void {
     const model = this.model;
+    const session = this.childDragSession;
+    if (session) {
+      cy.autoungrabify(session.previousAutoungrabify);
+      cy.userPanningEnabled(session.previousUserPanningEnabled);
+    }
     if (!model) {
-      this.childDragActive = false;
-      this.childDragSession = null;
       this.restoreChildVisibility(cy);
       this.enableDirectDragging(cy);
       this.configureDetachedChildDrag(cy);
+      this.childDragActive = false;
+      this.childDragSession = null;
       return;
     }
 
+    applyLayoutModelToCy(cy, model, this.syncMode);
+    this.pinParentToModel(cy);
+    this.restoreChildVisibility(cy);
+    this.enableDirectDragging(cy);
+    this.configureDetachedChildDrag(cy);
     this.childDragActive = false;
     this.childDragSession = null;
-    this.syncToCy(cy);
   }
 
   /**
@@ -358,11 +396,13 @@ export class GraphParent {
     cy: Core,
     callbacks: { onGrab?: (snap: GraphSnapshot) => void; onChange?: () => void },
   ): void {
+    let parentMovedDuringGesture = false;
+
     const onGrab = (event: EventObject) => {
       if (event.target.id() !== this.id || this.childDragActive) {
         return;
       }
-      this.syncParentDragFromCy(cy);
+      parentMovedDuringGesture = false;
       callbacks.onGrab?.(this.snapshot(cy));
     };
 
@@ -370,6 +410,7 @@ export class GraphParent {
       if (event.target.id() !== this.id || this.childDragActive) {
         return;
       }
+      parentMovedDuringGesture = true;
       this.syncParentDragFromCy(cy);
       callbacks.onChange?.();
     };
@@ -378,8 +419,11 @@ export class GraphParent {
       if (event.target.id() !== this.id || this.childDragActive) {
         return;
       }
-      this.syncParentDragFromCy(cy);
-      callbacks.onChange?.();
+      if (parentMovedDuringGesture) {
+        this.syncParentDragFromCy(cy);
+        callbacks.onChange?.();
+      }
+      parentMovedDuringGesture = false;
     };
 
     cy.on("grab", `node#${this.id}`, onGrab);
@@ -387,29 +431,27 @@ export class GraphParent {
     cy.on("free", `node#${this.id}`, onFree);
   }
 
-  private measureLikeBellman(cy: Core, preserveChildAbsolute: boolean): void {
+  private measureLikeBellman(cy: Core, centerContainerOnChild: boolean): void {
     cy.batch(() => {
       const parent = cy.getElementById(this.id);
-      if (parent.empty() || !parent.isParent()) {
+      const child = cy.getElementById(this.child.id);
+      if (parent.empty() || child.empty()) {
         return;
       }
       if (parent.data("compoundWidth") !== undefined) {
         return;
       }
 
-      const children = parent.children();
-      const box = children.nonempty()
-        ? children.boundingBox({ includeLabels: true, includeOverlays: false })
-        : null;
-      const fit = compoundSizeForContent(
-        box ? { x1: box.x1, y1: box.y1, x2: box.x2, y2: box.y2 } : null,
-      );
-      measureAndPinCompound(
-        parent,
-        fit.w + INITIAL_COMPOUND_SLACK,
-        fit.h + INITIAL_COMPOUND_SLACK,
-        preserveChildAbsolute,
-      );
+      const box = child.boundingBox({ includeLabels: true, includeOverlays: false });
+      const fit = compoundSizeForContent({ x1: box.x1, y1: box.y1, x2: box.x2, y2: box.y2 });
+      const w = fit.w + INITIAL_COMPOUND_SLACK;
+      const h = fit.h + INITIAL_COMPOUND_SLACK;
+      if (centerContainerOnChild) {
+        measureAndPinCompound(parent, child, w, h);
+      } else {
+        parent.data("compoundWidth", w);
+        parent.data("compoundHeight", h);
+      }
     });
   }
 
@@ -436,6 +478,53 @@ export class GraphParent {
       return;
     }
     child.removeStyle();
+  }
+
+  /**
+   * Keeps the (invisible) real Cytoscape container node in sync with the model's
+   * fixed center/size. The container is a plain node with no real Cytoscape
+   * children, so this can never have the side effect of dragging the child along.
+   */
+  private pinParentToModel(cy: Core): void {
+    const model = this.model;
+    if (!model) {
+      return;
+    }
+    const parentNode = model.nodes.get(this.id);
+    const parentSize = parentNode?.size;
+    if (!parentNode || !parentSize) {
+      return;
+    }
+    const cyParent = cy.getElementById(this.id);
+    if (cyParent.empty()) {
+      return;
+    }
+    cy.batch(() => {
+      cyParent.data("compoundWidth", parentSize.w);
+      cyParent.data("compoundHeight", parentSize.h);
+      cyParent.position({ x: parentNode.center.x, y: parentNode.center.y });
+    });
+  }
+
+  private renderedParentBoxFromModel(
+    cy: Core,
+  ): { left: number; top: number; width: number; height: number } | null {
+    const model = this.model;
+    if (!model) {
+      return null;
+    }
+    const box = compositeOuterBox(model, this.id);
+    if (!box) {
+      return null;
+    }
+    const pan = cy.pan();
+    const zoom = cy.zoom();
+    return {
+      left: box.x1 * zoom + pan.x,
+      top: box.y1 * zoom + pan.y,
+      width: (box.x2 - box.x1) * zoom,
+      height: (box.y2 - box.y1) * zoom,
+    };
   }
 
   private syncModelFromCy(cy: Core): WorkPackageLayoutModel {

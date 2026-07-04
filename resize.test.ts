@@ -13,11 +13,11 @@ describe("toy nested compound resize", () => {
       style: CYTOSCAPE_STYLESHEET,
       elements: [
         {
-          data: { id: "wp-invoicing", compoundWidth: 420, compoundHeight: 280 },
+          data: { id: "wp-invoicing", kind: "container", compoundWidth: 420, compoundHeight: 280 },
           position: { x: 0, y: 0 },
         },
         {
-          data: { id: "wp-pdf-export", parent: "wp-invoicing" },
+          data: { id: "wp-pdf-export", kind: "leaf" },
           position: { x: 0, y: 0 },
         },
       ],
@@ -48,11 +48,11 @@ describe("toy nested compound resize", () => {
       style: CYTOSCAPE_STYLESHEET,
       elements: [
         {
-          data: { id: "wp-invoicing", compoundWidth: 420, compoundHeight: 280 },
+          data: { id: "wp-invoicing", kind: "container", compoundWidth: 420, compoundHeight: 280 },
           position: { x: 10, y: 20 },
         },
         {
-          data: { id: "wp-pdf-export", parent: "wp-invoicing" },
+          data: { id: "wp-pdf-export", kind: "leaf" },
           position: { x: -40, y: 10 },
         },
       ],
@@ -85,7 +85,7 @@ describe("toy nested compound resize", () => {
 
     DEMO_COMPOUND.beginChildDrag(cy);
     cy.getElementById("wp-invoicing").position({ x: 25, y: -15 });
-    DEMO_COMPOUND.syncChildDragByDelta(draggedDelta);
+    DEMO_COMPOUND.syncChildDragByDelta(cy, draggedDelta);
     const during = DEMO_COMPOUND.liveSnapshot(cy);
 
     expect(during.parent.center.x).toBeCloseTo(before.parent.center.x, 3);
@@ -97,6 +97,8 @@ describe("toy nested compound resize", () => {
 
     DEMO_COMPOUND.finishChildDrag(cy);
     const after = DEMO_COMPOUND.snapshot(cy);
+    const parentPos = cy.getElementById("wp-invoicing").position();
+    const childPos = cy.getElementById("wp-pdf-export").position();
 
     expect(after.parent.center.x).toBeCloseTo(before.parent.center.x, 3);
     expect(after.parent.center.y).toBeCloseTo(before.parent.center.y, 3);
@@ -104,6 +106,10 @@ describe("toy nested compound resize", () => {
       before.children["wp-pdf-export"].absolute.x,
       1,
     );
+    expect(parentPos.x).toBeCloseTo(before.parent.center.x, 3);
+    expect(parentPos.y).toBeCloseTo(before.parent.center.y, 3);
+    expect(childPos.x).toBeCloseTo(draggedDelta.x, 3);
+    expect(childPos.y).toBeCloseTo(draggedDelta.y, 3);
   });
 
   it("parent drag sync copies the dragged center into the model", () => {
@@ -122,7 +128,7 @@ describe("toy nested compound resize", () => {
     expect(DEMO_COMPOUND.getModel()?.nodes.get("wp-invoicing")?.center.y).toBeCloseTo(-25, 3);
   });
 
-  it("beginChildDrag resyncs from Cytoscape before showing the drag ghost", () => {
+  it("beginChildDrag keeps current model state instead of importing hidden cy drift", () => {
     const cy = cytoscape({
       headless: true,
       style: CYTOSCAPE_STYLESHEET,
@@ -131,18 +137,25 @@ describe("toy nested compound resize", () => {
 
     DEMO_COMPOUND.initializeFromCy(cy, "preset-sized", true);
 
-    // Simulate the scene moving ahead of the cached model; the detached drag should
-    // still start from the node's real Cytoscape position rather than the stale model.
+    // Simulate the hidden Cytoscape child drifting away from the authoritative model.
+    // Starting a new detached drag should preserve the model state even if the visual
+    // drag anchor is taken from the currently visible Cytoscape node position.
     cy.getElementById("wp-pdf-export").position({ x: 70, y: 35 });
-    const childAbsolute = compoundAbsolutePosition(cy.getElementById("wp-pdf-export"));
+    const modelBefore = DEMO_COMPOUND.getModel();
+    const expectedAbsolute = modelBefore && {
+      x:
+        modelBefore.nodes.get("wp-invoicing")!.center.x +
+        modelBefore.nodes.get("wp-pdf-export")!.center.x,
+      y:
+        modelBefore.nodes.get("wp-invoicing")!.center.y +
+        modelBefore.nodes.get("wp-pdf-export")!.center.y,
+    };
 
     DEMO_COMPOUND.beginChildDrag(cy);
     const during = DEMO_COMPOUND.liveSnapshot(cy);
-    const visual = DEMO_COMPOUND.childDragVisual(cy);
 
-    expect(during.children["wp-pdf-export"].absolute.x).toBeCloseTo(childAbsolute.x, 3);
-    expect(during.children["wp-pdf-export"].absolute.y).toBeCloseTo(childAbsolute.y, 3);
-    expect(visual?.renderedX).toBeCloseTo(cy.getElementById("wp-pdf-export").renderedPosition().x, 3);
-    expect(visual?.renderedY).toBeCloseTo(cy.getElementById("wp-pdf-export").renderedPosition().y, 3);
+    expect(expectedAbsolute).not.toBeNull();
+    expect(during.children["wp-pdf-export"].absolute.x).toBeCloseTo(expectedAbsolute!.x, 3);
+    expect(during.children["wp-pdf-export"].absolute.y).toBeCloseTo(expectedAbsolute!.y, 3);
   });
 });

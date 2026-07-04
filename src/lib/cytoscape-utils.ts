@@ -8,18 +8,15 @@ export interface Point {
   h?: number;
 }
 
+/**
+ * Cytoscape stores every node's position in plain global graph coordinates. The
+ * "container" node is a regular node (not a real compound parent - see
+ * cytoscape-theme.ts for why), so there is no nesting to walk here; this helper
+ * exists mainly for call-site readability/API stability.
+ */
 export function compoundAbsolutePosition(node: NodeSingular): Point {
   const position = node.position();
-  const parent = node.parent();
-  if (parent.empty()) {
-    return { x: position.x, y: position.y };
-  }
-
-  const parentAbsolute = compoundAbsolutePosition(parent.first());
-  return {
-    x: parentAbsolute.x + position.x,
-    y: parentAbsolute.y + position.y,
-  };
+  return { x: position.x, y: position.y };
 }
 
 export function graphNodeModelPosition(node: NodeSingular): Point {
@@ -52,82 +49,69 @@ export function compoundSizeForContent(contentBox: {
 export const INITIAL_COMPOUND_SLACK = 56;
 
 /**
- * Pins compound size while keeping the top-left corner fixed (bellman-gui helper).
+ * Resizes a plain (non-compound) node while keeping its top-left corner fixed.
+ * Cytoscape resizes a plain node's shape around its existing center, so to keep
+ * the top-left anchored we shift the position by half the size delta ourselves.
  */
 export function applyFrozenCompoundSize(node: NodeSingular, w: number, h: number): void {
-  const before = node.boundingBox({ includeLabels: false, includeOverlays: false });
-  const topLeftX = before.x1;
-  const topLeftY = before.y1;
+  const beforeW = Number(node.data("compoundWidth"));
+  const beforeH = Number(node.data("compoundHeight"));
+  const hasBefore = Number.isFinite(beforeW) && Number.isFinite(beforeH);
 
   node.data("compoundWidth", w);
   node.data("compoundHeight", h);
 
-  const after = node.boundingBox({ includeLabels: false, includeOverlays: false });
-  const dx = topLeftX - after.x1;
-  const dy = topLeftY - after.y1;
-  if (dx === 0 && dy === 0) {
+  if (!hasBefore) {
+    return;
+  }
+  const dw = w - beforeW;
+  const dh = h - beforeH;
+  if (dw === 0 && dh === 0) {
     return;
   }
 
   const position = node.position();
-  node.position({ x: position.x + dx, y: position.y + dy });
+  node.position({ x: position.x + dw / 2, y: position.y + dh / 2 });
 }
 
-export function compoundChromeRenderedBox(node: NodeSingular): {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-} {
-  node.cy().resize();
-  return node.renderedBoundingBox({ includeLabels: false, includeOverlays: false });
-}
-
+/**
+ * One-time initialization for the "measured" scenario: size the container to fit
+ * around the child's current bounding box, centering the container on the child so
+ * the child's own (already-correct) position never needs to move. Since the
+ * container is a plain node with no real Cytoscape children, sizing it can never
+ * have the side effect of dragging the child along - unlike Cytoscape's native
+ * compound bounds-fitting, which always keeps a lone child's own bounding box
+ * pinned to a bias-anchored corner of the parent (see cytoscape-theme.ts).
+ */
 export function measureAndPinCompound(
-  parent: NodeSingular,
+  container: NodeSingular,
+  child: NodeSingular,
   w: number,
   h: number,
-  preserveChildAbsolute: boolean,
 ): void {
-  const children = parent.children();
-  const childAbsBefore = new Map<string, Point>();
-  if (preserveChildAbsolute) {
-    children.forEach((child) => {
-      childAbsBefore.set(child.id(), compoundAbsolutePosition(child));
-    });
-  }
-
-  applyFrozenCompoundSize(parent, w, h);
-
-  if (preserveChildAbsolute) {
-    children.forEach((child) => {
-      const abs = childAbsBefore.get(child.id());
-      if (!abs) {
-        return;
-      }
-      const parentAbs = compoundAbsolutePosition(parent);
-      child.position({
-        x: abs.x - parentAbs.x,
-        y: abs.y - parentAbs.y,
-      });
-    });
-  }
-
-  if (parent.isParent() && parent.children().length > 0) {
-    parent.lock();
-  }
+  const childPosition = child.position();
+  container.data("compoundWidth", w);
+  container.data("compoundHeight", h);
+  container.position({ x: childPosition.x, y: childPosition.y });
 }
 
 export function snapshotGraphState(cy: Core, parentId: string, childIds: string[]) {
   const parent = cy.getElementById(parentId);
-  const parentBox = parent.boundingBox({ includeLabels: false, includeOverlays: false });
+  const w = Number(parent.data("compoundWidth"));
+  const h = Number(parent.data("compoundHeight"));
+  const center = compoundAbsolutePosition(parent);
   return {
     parent: {
-      center: compoundAbsolutePosition(parent),
+      center,
       relative: parent.position(),
-      w: Number(parent.data("compoundWidth")),
-      h: Number(parent.data("compoundHeight")),
-      box: { x1: parentBox.x1, y1: parentBox.y1, x2: parentBox.x2, y2: parentBox.y2 },
+      w,
+      h,
+      box: {
+        x1: center.x - w / 2,
+        y1: center.y - h / 2,
+        x2: center.x + w / 2,
+        y2: center.y + h / 2,
+      },
     },
     children: Object.fromEntries(
       childIds.map((id) => {

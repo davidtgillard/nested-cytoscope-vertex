@@ -13,6 +13,7 @@ import {
   type ChildDragVisual,
   createDemoCy,
   DEMO_COMPOUND,
+  type ParentDragVisual,
   type Scenario,
 } from "./lib/compound-graph";
 import { type ResizeCorner } from "./lib/layout-model";
@@ -194,6 +195,7 @@ export function App() {
   const [liveSnapshot, setLiveSnapshot] = useState<GraphSnapshot | null>(null);
   const [modelSnapshot, setModelSnapshot] = useState<string>("");
   const [childDragVisual, setChildDragVisual] = useState<ChildDragVisual | null>(null);
+  const [parentDragVisual, setParentDragVisual] = useState<ParentDragVisual | null>(null);
 
   const compound = compoundRef.current;
 
@@ -205,6 +207,7 @@ export function App() {
     setLiveSnapshot(compound.liveSnapshot(cy));
     setModelSnapshot(compound.modelDebugSnapshot());
     setChildDragVisual(compound.childDragVisual(cy));
+    setParentDragVisual(compound.parentDragVisual(cy));
   }, [compound]);
 
   const recomputeHandles = useCallback(() => {
@@ -291,7 +294,7 @@ export function App() {
           return;
         }
         domEvent.preventDefault();
-        compound.syncChildDragByDelta({
+        compound.syncChildDragByDelta(cy, {
           x: (nextClientPoint.clientX - startClientPoint.clientX) / cy.zoom(),
           y: (nextClientPoint.clientY - startClientPoint.clientY) / cy.zoom(),
         });
@@ -465,7 +468,23 @@ export function App() {
         </div>
 
         <div className="graph-shell">
-          <div className="graph-viewport" ref={containerRef} />
+          <div
+            className={`graph-viewport${childDragVisual ? " graph-viewport-dragging" : ""}`}
+            ref={containerRef}
+          />
+          {parentDragVisual ? (
+            <div
+              className={`compound-parent-overlay${parentDragVisual.selected ? " is-selected" : ""}`}
+              style={{
+                left: parentDragVisual.left,
+                top: parentDragVisual.top,
+                width: parentDragVisual.width,
+                height: parentDragVisual.height,
+              }}
+            >
+              <div className="compound-parent-label">{parentDragVisual.label}</div>
+            </div>
+          ) : null}
           {childDragVisual ? (
             <div className="child-drag-layer">
               <div
