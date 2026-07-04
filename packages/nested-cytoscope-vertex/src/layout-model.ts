@@ -5,10 +5,7 @@ import {
 } from "./cytoscape-theme";
 import { boxesOverlap, detectCollision, resolvePosition, type Point, type VisualBox } from "./collision";
 
-export type { VisualBox };
-export { boxesOverlap };
-
-export interface NodePosition {
+interface NodePosition {
   x: number;
   y: number;
   w?: number;
@@ -86,8 +83,10 @@ export interface WorkPackageLayoutModel {
   rootIds: string[];
 }
 
+/** Corner identifier for compound resize handles. */
 export type ResizeCorner = "nw" | "ne" | "sw" | "se";
 
+/** Which compound edges may shrink below the child-fit minimum during a resize gesture. */
 export interface ResizeLooseEdges {
   west: boolean;
   east: boolean;
@@ -97,8 +96,11 @@ export interface ResizeLooseEdges {
 
 /** Frozen at pointer-down so a resize gesture does not re-snap edges mid-drag. */
 export interface ResizeChildConstraints {
-  childrenBox: VisualBox | null;
+  /** Child footprint bounds in absolute model coordinates, or null if unknown. */
+  childrenBox: { x1: number; y1: number; x2: number; y2: number } | null;
+  /** Model-unit edge clearance (see {@link GraphParentVertex.setEdgeClearance}). */
   edgeClearance: number;
+  /** Which edges may shrink below the child-fit minimum during this gesture. */
   looseEdges: ResizeLooseEdges;
 }
 

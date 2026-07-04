@@ -7,6 +7,7 @@ import {
 } from "./layout-model";
 import type { VisualBox } from "./collision";
 
+/** @internal */
 export interface Point {
   x: number;
   y: number;
@@ -20,11 +21,13 @@ export interface Point {
  * cytoscape-theme.ts for why), so there is no nesting to walk here; this helper
  * exists mainly for call-site readability/API stability.
  */
+/** @internal */
 export function compoundAbsolutePosition(node: NodeSingular): Point {
   const position = node.position();
   return { x: position.x, y: position.y };
 }
 
+/** @internal */
 export function graphNodeModelPosition(node: NodeSingular): Point {
   return node.position();
 }
@@ -37,6 +40,7 @@ export function graphNodeModelPosition(node: NodeSingular): Point {
  * center) while the label-inclusive box gives the bottom/width extent. This works even
  * while the node is hidden mid-drag (opacity 0), since boundingBox is geometry-based.
  */
+/** @internal */
 export function measureLeafFootprint(node: NodeSingular): {
   halfW: number;
   halfHTop: number;
@@ -53,6 +57,7 @@ export function measureLeafFootprint(node: NodeSingular): {
 }
 
 /** Copy live Cytoscape label/shape metrics into the layout model's leaf footprints. */
+/** @internal */
 export function syncLeafFootprintsFromCy(
   cy: Core,
   model: WorkPackageLayoutModel,
@@ -73,6 +78,7 @@ export function syncLeafFootprintsFromCy(
  * extents. Shifts the bounding box when the model center has diverged from the hidden
  * Cytoscape node (e.g. mid detached child-drag).
  */
+/** @internal */
 export function childFitBoxAbsoluteFromCy(
   cy: Core,
   model: WorkPackageLayoutModel,
@@ -103,6 +109,7 @@ export function childFitBoxAbsoluteFromCy(
   };
 }
 
+/** @internal */
 export function childrenFitBoxAbsoluteFromCy(
   cy: Core,
   model: WorkPackageLayoutModel,
@@ -133,6 +140,7 @@ export function childrenFitBoxAbsoluteFromCy(
   return { x1, y1, x2, y2 };
 }
 
+/** @internal */
 export function compoundSizeForContent(contentBox: {
   x1: number;
   y1: number;
@@ -166,6 +174,7 @@ export function compoundSizeForContent(contentBox: {
  * COMPOUND_PADDING. Kept small since the edges themselves are already only as far away
  * as COMPOUND_PADDING plus the child's own measured footprint demand.
  */
+/** @internal */
 export const INITIAL_COMPOUND_SLACK = 24;
 
 /**
@@ -173,6 +182,7 @@ export const INITIAL_COMPOUND_SLACK = 24;
  * Cytoscape resizes a plain node's shape around its existing center, so to keep
  * the top-left anchored we shift the position by half the size delta ourselves.
  */
+/** @internal */
 export function applyFrozenCompoundSize(node: NodeSingular, w: number, h: number): void {
   const beforeW = Number(node.data("compoundWidth"));
   const beforeH = Number(node.data("compoundHeight"));
@@ -203,6 +213,7 @@ export function applyFrozenCompoundSize(node: NodeSingular, w: number, h: number
  * compound bounds-fitting, which always keeps a lone child's own bounding box
  * pinned to a bias-anchored corner of the parent (see cytoscape-theme.ts).
  */
+/** @internal */
 export function measureAndPinCompound(
   container: NodeSingular,
   child: NodeSingular,
@@ -215,7 +226,26 @@ export function measureAndPinCompound(
   container.position({ x: childPosition.x, y: childPosition.y });
 }
 
-export function snapshotGraphState(cy: Core, parentId: string, childIds: string[]) {
+/** Point-in-time graph state for parent size/position and child absolutes. */
+export interface GraphSnapshot {
+  parent: {
+    center: { x: number; y: number };
+    relative: { x: number; y: number };
+    w: number;
+    h: number;
+    box: { x1: number; y1: number; x2: number; y2: number };
+  };
+  children: Record<
+    string,
+    {
+      absolute: { x: number; y: number };
+      relative: { x: number; y: number };
+    }
+  >;
+}
+
+/** @internal */
+export function snapshotGraphState(cy: Core, parentId: string, childIds: string[]): GraphSnapshot {
   const parent = cy.getElementById(parentId);
   const w = Number(parent.data("compoundWidth"));
   const h = Number(parent.data("compoundHeight"));
@@ -248,8 +278,10 @@ export function snapshotGraphState(cy: Core, parentId: string, childIds: string[
   };
 }
 
-export type GraphSnapshot = ReturnType<typeof snapshotGraphState>;
-
+/**
+ * Absolute-position deltas for each child between two {@link GraphSnapshot} values.
+ * Useful for debug panels that detect drift during resize or drag gestures.
+ */
 export function snapshotDelta(
   before: GraphSnapshot,
   after: GraphSnapshot,

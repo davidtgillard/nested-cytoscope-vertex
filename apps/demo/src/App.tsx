@@ -9,27 +9,18 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
-  CHILD_EDGE_CLEARANCE_PX,
-  LEAF_LABEL_COLOR,
-  LEAF_LABEL_FONT_FAMILY,
-  LEAF_LABEL_FONT_SIZE,
-  LEAF_LABEL_FONT_WEIGHT,
-  LEAF_LABEL_MARGIN_Y,
-  LEAF_LABEL_OUTLINE_COLOR,
-  LEAF_LABEL_OUTLINE_WIDTH,
-  LEAF_NODE_DIAMETER,
-  LEAF_SELECTION_OUTLINE_COLOR,
-  LEAF_SELECTION_OUTLINE_WIDTH,
-} from "./lib/cytoscape-theme";
-import { snapshotDelta, type GraphSnapshot } from "./lib/cytoscape-utils";
-import {
+  DEFAULT_COMPOUND_GRAPH_THEME,
+  leafDomVisualStyle,
+  snapshotDelta,
   type ChildDragVisual,
-  createDemoCy,
-  DEMO_COMPOUND,
+  type GraphSnapshot,
+  type LeafDomVisualStyle,
   type ParentDragVisual,
   type RenderedBoxRect,
-} from "./lib/compound-graph";
-import { type ResizeCorner, type ResizeChildConstraints } from "./lib/layout-model";
+  type ResizeChildConstraints,
+  type ResizeCorner,
+} from "@dgillard/nested-cytoscope-vertex";
+import { createDemoCy, DEMO_COMPOUND } from "./demo-graph";
 
 const CORNERS: ResizeCorner[] = ["nw", "ne", "sw", "se"];
 const HANDLE_SIZE = 12;
@@ -56,33 +47,10 @@ function readCssLengthValue(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-interface ChildVisualStyle {
-  fontSize: number;
-  fontFamily: string;
-  fontWeight: string;
-  color: string;
-  labelOutlineWidth: number;
-  labelOutlineColor: string;
-  labelMarginY: number;
-  nodeWidth: number;
-  nodeHeight: number;
-  selectionOutlineWidth: number;
-  selectionOutlineColor: string;
-}
+interface ChildVisualStyle extends LeafDomVisualStyle {}
 
-const DEFAULT_CHILD_VISUAL_STYLE: ChildVisualStyle = {
-  fontSize: LEAF_LABEL_FONT_SIZE,
-  fontFamily: LEAF_LABEL_FONT_FAMILY,
-  fontWeight: String(LEAF_LABEL_FONT_WEIGHT),
-  color: LEAF_LABEL_COLOR,
-  labelOutlineWidth: LEAF_LABEL_OUTLINE_WIDTH,
-  labelOutlineColor: LEAF_LABEL_OUTLINE_COLOR,
-  labelMarginY: LEAF_LABEL_MARGIN_Y,
-  nodeWidth: LEAF_NODE_DIAMETER,
-  nodeHeight: LEAF_NODE_DIAMETER,
-  selectionOutlineWidth: LEAF_SELECTION_OUTLINE_WIDTH,
-  selectionOutlineColor: LEAF_SELECTION_OUTLINE_COLOR,
-};
+const DEFAULT_CHILD_VISUAL_STYLE: ChildVisualStyle = leafDomVisualStyle();
+const THEME = DEFAULT_COMPOUND_GRAPH_THEME;
 
 function readComputedChildVisualStyle(
   labelElement: HTMLElement | null,
@@ -96,30 +64,30 @@ function readComputedChildVisualStyle(
   const nodeStyle = window.getComputedStyle(nodeElement);
   const selectedNodeStyle = window.getComputedStyle(selectedNodeElement);
   return {
-    fontSize: readCssLengthValue(labelStyle.fontSize, LEAF_LABEL_FONT_SIZE),
-    fontFamily: labelStyle.fontFamily || LEAF_LABEL_FONT_FAMILY,
-    fontWeight: labelStyle.fontWeight || String(LEAF_LABEL_FONT_WEIGHT),
-    color: labelStyle.color || LEAF_LABEL_COLOR,
+    fontSize: readCssLengthValue(labelStyle.fontSize, THEME.leafLabel.fontSize),
+    fontFamily: labelStyle.fontFamily || THEME.leafLabel.fontFamily,
+    fontWeight: labelStyle.fontWeight || String(THEME.leafLabel.fontWeight),
+    color: labelStyle.color || THEME.leafLabel.color,
     labelOutlineWidth: readCssLengthValue(
       labelStyle.getPropertyValue("--child-label-outline-width"),
-      LEAF_LABEL_OUTLINE_WIDTH,
+      THEME.leafLabel.outlineWidth,
     ),
     labelOutlineColor:
       labelStyle.getPropertyValue("--child-label-outline-color").trim() ||
-      LEAF_LABEL_OUTLINE_COLOR,
+      THEME.leafLabel.outlineColor,
     labelMarginY: readCssLengthValue(
       labelStyle.getPropertyValue("--child-label-gap-y"),
-      LEAF_LABEL_MARGIN_Y,
+      THEME.leafLabel.marginY,
     ),
-    nodeWidth: readCssLengthValue(nodeStyle.width, LEAF_NODE_DIAMETER),
-    nodeHeight: readCssLengthValue(nodeStyle.height, LEAF_NODE_DIAMETER),
+    nodeWidth: readCssLengthValue(nodeStyle.width, THEME.leafNode.diameter),
+    nodeHeight: readCssLengthValue(nodeStyle.height, THEME.leafNode.diameter),
     selectionOutlineWidth: readCssLengthValue(
       selectedNodeStyle.getPropertyValue("--child-selection-ring-width"),
-      LEAF_SELECTION_OUTLINE_WIDTH,
+      THEME.leafSelection.outlineWidth,
     ),
     selectionOutlineColor:
       selectedNodeStyle.getPropertyValue("--child-selection-ring-color").trim() ||
-      LEAF_SELECTION_OUTLINE_COLOR,
+      THEME.leafSelection.outlineColor,
   };
 }
 
@@ -239,7 +207,7 @@ export function App() {
       return;
     }
 
-    compound.setEdgeClearance(CHILD_EDGE_CLEARANCE_PX / zoom);
+    compound.setEdgeClearance(THEME.childEdgeClearancePx / zoom);
   }, [compound]);
 
   useEffect(() => {

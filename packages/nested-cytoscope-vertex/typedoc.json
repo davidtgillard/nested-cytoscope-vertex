@@ -1,0 +1,9 @@
+{
+  "entryPoints": ["src/index.ts"],
+  "out": "../../docs/api",
+  "excludeInternal": true,
+  "validation": {
+    "notDocumented": true,
+    "notExported": true
+  }
+}

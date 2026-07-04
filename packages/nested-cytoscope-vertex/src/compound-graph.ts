@@ -2,7 +2,6 @@ import type { Core, EventObject } from "cytoscape";
 import cytoscape from "cytoscape";
 import { applyLayoutModelToCy, layoutModelFromCy } from "./cytoscape-sync";
 import {
-  CYTOSCAPE_STYLESHEET,
   CHILD_EDGE_CLEARANCE_PX,
   COMPOUND_PADDING,
   LEAF_LABEL_COLOR,
@@ -39,6 +38,7 @@ import {
   type WorkPackageLayoutModel,
 } from "./layout-model";
 
+/** Screen-space metrics for the DOM child-drag ghost overlay. */
 export interface ChildDragVisual {
   renderedX: number;
   renderedY: number;
@@ -48,6 +48,7 @@ export interface ChildDragVisual {
   color: string;
 }
 
+/** Screen-space bounds for the DOM compound-parent overlay (border + label). */
 export interface ParentDragVisual {
   left: number;
   top: number;
@@ -64,6 +65,7 @@ export interface ParentDragVisual {
   zoomScale: number;
 }
 
+/** Screen-space axis-aligned rectangle in container pixel coordinates. */
 export interface RenderedBoxRect {
   left: number;
   top: number;
@@ -71,6 +73,7 @@ export interface RenderedBoxRect {
   height: number;
 }
 
+/** Specification for a leaf child owned by a {@link GraphParentVertex}. */
 export interface GraphChildVertexSpec {
   id: string;
   label: string;
@@ -79,8 +82,8 @@ export interface GraphChildVertexSpec {
   y?: number;
 }
 
-/** Leaf node owned exclusively by its compound parent. */
-export class GraphChildVertex {
+/** Leaf node owned exclusively by its compound parent. @internal */
+class GraphChildVertex {
   private constructor(
     readonly id: string,
     readonly label: string,
@@ -127,7 +130,18 @@ export class GraphChildVertex {
   }
 }
 
-/** Compound parent that owns its children and guards all layout mutations. */
+/**
+ * Compound parent that owns its children, layout model, and Cytoscape sync.
+ *
+ * Typical lifecycle:
+ * 1. {@link GraphParentVertex.create} with child specs
+ * 2. {@link GraphParentVertex.buildElements} → pass to Cytoscape with {@link createCompoundGraphStylesheet}
+ * 3. {@link GraphParentVertex.initializeFromCy} after first render
+ * 4. {@link GraphParentVertex.attachChildDragHandlers} / {@link GraphParentVertex.attachParentDragHandlers}
+ * 5. On resize: {@link GraphParentVertex.computeResizeChildConstraints} → {@link GraphParentVertex.resizeFromCorner} → {@link GraphParentVertex.syncToCy}
+ *
+ * Invariant: resizing from a corner does not change child absolute positions in graph space.
+ */
 export class GraphParentVertex {
   readonly children: readonly GraphChildVertex[];
   private model: WorkPackageLayoutModel | null = null;
@@ -155,19 +169,25 @@ export class GraphParentVertex {
     this.children = childSpecs.map((spec) => GraphChildVertex.attach(spec));
   }
 
+  /** Creates a compound parent and its owned leaf children. */
   static create(spec: {
+    /** Cytoscape element id for the container node. */
     id: string;
+    /** Human-readable label shown in the DOM parent overlay. */
     label: string;
+    /** Leaf stylesheet fallback color for the container metadata. */
     color: string;
     children: GraphChildVertexSpec[];
   }): GraphParentVertex {
     return new GraphParentVertex(spec.id, spec.label, spec.color, spec.children);
   }
 
+  /** Returns an owned child by id, if present. */
   getChild(id: string): GraphChildVertex | undefined {
     return this.children.find((child) => child.id === id);
   }
 
+  /** Layout-model inputs describing this parent and its children. @internal */
   get layoutInputs(): LayoutNodeInput[] {
     return [
       { id: this.id, isCompound: true },
@@ -175,10 +195,12 @@ export class GraphParentVertex {
     ];
   }
 
+  /** Child element ids owned by this parent. */
   get childIds(): string[] {
     return this.children.map((child) => child.id);
   }
 
+  /** Current in-memory layout model, or null before initialization. @internal */
   getModel(): WorkPackageLayoutModel | null {
     return this.model;
   }
@@ -196,6 +218,7 @@ export class GraphParentVertex {
     }
   }
 
+  /** JSON debug view of parent center/size and child absolute centers. */
   modelDebugSnapshot(): string {
     const model = this.model;
     if (!model) {
@@ -216,6 +239,7 @@ export class GraphParentVertex {
     );
   }
 
+  /** Cytoscape element definitions for the container node and its leaf children. */
   buildElements(): cytoscape.ElementDefinition[] {
     return [
       {
@@ -242,6 +266,7 @@ export class GraphParentVertex {
     return snapshotGraphState(cy, this.id, this.childIds);
   }
 
+  /** Ensures the layout model exists, syncing from Cytoscape if needed. @internal */
   ensureModelFromCy(cy: Core): WorkPackageLayoutModel {
     if (!this.model || !compositeOuterBox(this.model, this.id)) {
       this.syncModelFromCy(cy);
@@ -252,6 +277,7 @@ export class GraphParentVertex {
     return this.model;
   }
 
+  /** Deep-clones the current layout model for immutable resize gestures. */
   cloneModel(): WorkPackageLayoutModel {
     if (!this.model) {
       throw new Error("layout model not initialized");
@@ -259,6 +285,7 @@ export class GraphParentVertex {
     return cloneLayoutModel(this.model);
   }
 
+  /** Screen-space box for corner resize handles when the parent is selected. */
   renderedHandleBox(cy: Core): { left: number; top: number; width: number; height: number } | null {
     const parent = cy.getElementById(this.id);
     if (parent.empty() || !parent.selected()) {
@@ -267,10 +294,15 @@ export class GraphParentVertex {
     return this.renderedParentBoxFromModel(cy);
   }
 
+  /** Point-in-time Cytoscape snapshot of parent size and child absolutes. */
   snapshot(cy: Core): GraphSnapshot {
     return snapshotGraphState(cy, this.id, this.childIds);
   }
 
+  /**
+   * Snapshot that reflects the authoritative layout model mid-gesture (e.g. detached child drag)
+   * instead of reading hidden Cytoscape node positions.
+   */
   liveSnapshot(cy: Core): GraphSnapshot {
     if (!this.childDragActive || !this.model) {
       return this.snapshot(cy);
@@ -307,6 +339,7 @@ export class GraphParentVertex {
     };
   }
 
+  /** Screen-space ghost overlay state while a child drag is active. */
   childDragVisual(cy: Core): ChildDragVisual | null {
     const session = this.childDragSession;
     if (!this.childDragActive || !this.model || !session) {
@@ -327,6 +360,7 @@ export class GraphParentVertex {
     };
   }
 
+  /** Screen-space compound border/label overlay driven by the layout model. */
   parentDragVisual(cy: Core): ParentDragVisual | null {
     const parent = cy.getElementById(this.id);
     if (parent.empty()) {
@@ -344,6 +378,7 @@ export class GraphParentVertex {
     };
   }
 
+  /** Debug overlay showing the minimum outer box implied by measured child footprints. */
   minResizeVisual(cy: Core): RenderedBoxRect | null {
     const model = this.model;
     if (!model) {
@@ -357,6 +392,7 @@ export class GraphParentVertex {
     return renderedBoxRect(cy, box);
   }
 
+  /** Refreshes measured leaf footprints from live Cytoscape label metrics. */
   refreshFootprintsFromCy(cy: Core): void {
     const model = this.model;
     if (!model) {
@@ -365,6 +401,7 @@ export class GraphParentVertex {
     syncLeafFootprintsFromCy(cy, model, this.id);
   }
 
+  /** Computes frozen child-fit constraints for a resize gesture about to begin. */
   computeResizeChildConstraints(cy: Core): ResizeChildConstraints {
     const model = this.ensureModelFromCy(cy);
     syncLeafFootprintsFromCy(cy, model, this.id);
@@ -390,6 +427,7 @@ export class GraphParentVertex {
     };
   }
 
+  /** Applies a corner resize delta to a cloned start model and stores the result. */
   resizeFromCorner(
     corner: ResizeCorner,
     dxModel: number,
@@ -400,6 +438,7 @@ export class GraphParentVertex {
     this.model = resizeComposite(startModel, this.id, corner, dxModel, dyModel, constraints);
   }
 
+  /** Writes the layout model back to Cytoscape and reconfigures drag behaviour. */
   syncToCy(cy: Core): void {
     if (!this.model) {
       return;
@@ -411,10 +450,12 @@ export class GraphParentVertex {
     this.configureDetachedChildDrag(cy);
   }
 
+  /** True while a detached child drag session is in progress. */
   isChildDragInProgress(): boolean {
     return this.childDragActive;
   }
 
+  /** Registers detached pointer/touch handlers for owned leaf nodes. */
   attachChildDragHandlers(
     cy: Core,
     callbacks: {
@@ -423,6 +464,7 @@ export class GraphParentVertex {
       onEnd?: () => void;
     },
   ): void {
+    /* v8 ignore start -- browser event wiring; covered by demo manual testing */
     const childIdSet = new Set(this.childIds);
     let dragCleanup: (() => void) | null = null;
 
@@ -478,8 +520,10 @@ export class GraphParentVertex {
     };
 
     cy.on("tapstart", "node[kind = 'leaf']", onChildDragStart);
+    /* v8 ignore stop */
   }
 
+  /** Registers Cytoscape grab/drag/free handlers for the container node. */
   attachParentDragHandlers(
     cy: Core,
     callbacks: { onGrab?: (snap: GraphSnapshot) => void; onChange?: () => void },
@@ -746,6 +790,7 @@ function renderedBoxRect(
   };
 }
 
+/* v8 ignore start -- DOM pointer/touch listener glue; exercised manually via apps/demo */
 function clientPointFromDomEvent(
   event: MouseEvent | PointerEvent | TouchEvent,
 ): { clientX: number; clientY: number } | null {
@@ -868,36 +913,4 @@ function wireDetachedDragListeners(
     }
   };
 }
-
-/** Demo graph: wp-invoicing compound containing two export children. */
-export const DEMO_COMPOUND = GraphParentVertex.create({
-  id: "wp-invoicing",
-  label: "wp-invoicing",
-  color: "#64748b",
-  children: [
-    {
-      id: "wp-pdf-export",
-      label: "wp-pdf-export",
-      color: "#94a3b8",
-      x: -60,
-      y: 0,
-    },
-    {
-      id: "wp-email-export",
-      label: "wp-email-export",
-      color: "#a8b4c4",
-      x: 60,
-      y: 0,
-    },
-  ],
-});
-
-export function createDemoCy(container: HTMLElement): Core {
-  return cytoscape({
-    container,
-    style: CYTOSCAPE_STYLESHEET,
-    elements: DEMO_COMPOUND.buildElements(),
-    layout: { name: "preset", fit: true, padding: 40 },
-    wheelSensitivity: 0.2,
-  });
-}
+/* v8 ignore stop */

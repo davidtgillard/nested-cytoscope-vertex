@@ -1,0 +1,39 @@
+{
+  "name": "@dgillard/nested-cytoscope-vertex",
+  "version": "0.1.0",
+  "description": "GraphParentVertex compound graph API for Cytoscape with nested resize and drag",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean --external cytoscape",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "docs": "typedoc",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "attw": "npm run build && npm run typecheck"
+  },
+  "peerDependencies": {
+    "cytoscape": "^3.33.0"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.17.4",
+    "@vitest/coverage-v8": "^4.1.9",
+    "cytoscape": "^3.33.1",
+    "jsdom": "^29.1.1",
+    "tsup": "^8.5.0",
+    "typedoc": "^0.28.5",
+    "typescript": "~5.8.3",
+    "vitest": "^4.1.9"
+  }
+}

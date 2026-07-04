@@ -1,9 +1,9 @@
 import cytoscape from "cytoscape";
 import { describe, expect, it } from "vitest";
-import { DEMO_COMPOUND } from "./src/lib/compound-graph";
-import { COMPOUND_PADDING, CYTOSCAPE_STYLESHEET } from "./src/lib/cytoscape-theme";
-import { applyLayoutModelToCy, layoutModelFromCy } from "./src/lib/cytoscape-sync";
-import { childrenFitBoxAbsoluteFromCy, compoundAbsolutePosition } from "./src/lib/cytoscape-utils";
+import { GraphParentVertex, createCompoundGraphStylesheet } from "./index";
+import { COMPOUND_PADDING } from "./cytoscape-theme";
+import { applyLayoutModelToCy, layoutModelFromCy } from "./cytoscape-sync";
+import { childrenFitBoxAbsoluteFromCy, compoundAbsolutePosition } from "./cytoscape-utils";
 import {
   ALL_LOOSE_EDGES,
   absoluteCenter,
@@ -13,7 +13,19 @@ import {
   NODE_OVERLAP_PADDING,
   resizeComposite,
   resizeLooseEdgesFromOuter,
-} from "./src/lib/layout-model";
+} from "./layout-model";
+
+const DEMO_COMPOUND = GraphParentVertex.create({
+  id: "wp-invoicing",
+  label: "wp-invoicing",
+  color: "#64748b",
+  children: [
+    { id: "wp-pdf-export", label: "wp-pdf-export", color: "#94a3b8", x: -60, y: 0 },
+    { id: "wp-email-export", label: "wp-email-export", color: "#a8b4c4", x: 60, y: 0 },
+  ],
+});
+
+const CYTOSCAPE_STYLESHEET = createCompoundGraphStylesheet();
 
 /** Headless fixture with explicit parent dimensions (replaces the old preset-sized scenario). */
 function sizedDemoElements(): cytoscape.ElementDefinition[] {

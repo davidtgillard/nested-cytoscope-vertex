@@ -1,51 +1,93 @@
-# Toy nested Cytoscape compound resize
+# @dgillard/nested-cytoscope-vertex
 
-Minimal reproduction harness for bellman-gui compound resize behaviour. It models the bundled example setup:
+TypeScript library for nested compound graphs in Cytoscape. The core API is {@link GraphParentVertex}: a compound parent that owns leaf children, keeps an authoritative layout model, and syncs to Cytoscape while preserving child absolute positions during resize.
 
-- **Parent compound:** `wp-invoicing`
-- **Inner nodes:** `wp-pdf-export`, `wp-email-export`
+## Install
 
-Use this repo to iterate on layout/sync fixes without running the full Tauri app.
+```bash
+npm install @dgillard/nested-cytoscope-vertex cytoscape
+```
 
 ## Quick start
 
+```ts
+import cytoscape from "cytoscape";
+import {
+  GraphParentVertex,
+  createCompoundGraphStylesheet,
+} from "@dgillard/nested-cytoscope-vertex";
+
+const parent = GraphParentVertex.create({
+  id: "wp-invoicing",
+  label: "wp-invoicing",
+  color: "#64748b",
+  children: [
+    { id: "wp-pdf-export", label: "wp-pdf-export", color: "#94a3b8", x: -60, y: 0 },
+  ],
+});
+
+const cy = cytoscape({
+  container: document.getElementById("graph")!,
+  style: createCompoundGraphStylesheet(),
+  elements: parent.buildElements(),
+  layout: { name: "preset", fit: true, padding: 40 },
+});
+
+cy.ready(() => {
+  parent.initializeFromCy(cy);
+  parent.attachChildDragHandlers(cy, { onMove: () => {} });
+  parent.attachParentDragHandlers(cy, { onChange: () => {} });
+});
+```
+
+## Demo app
+
+Manual test harness (not published):
+
 ```bash
-cd ~/src/toy-nested-cytoscope-example.git
 npm install
 npm run dev
 ```
 
 Open http://localhost:5174
 
-## What to try
-
-1. Drag a corner resize handle on `wp-invoicing`.
-2. Drag either child node inside the compound.
-3. Watch **Child absolute delta** in the right panel — it should stay at `0` during resize. Any non-zero value means inner nodes moved in graph space.
-
-Use **Reset graph** to rebuild Cytoscape from scratch.
-
-## Code map
-
-| File | Role |
-|------|------|
-| `src/lib/compound-graph.ts` | `GraphParentVertex` / `GraphChildVertex` domain API |
-| `src/lib/layout-model.ts` | Domain model + `resizeComposite` (ported from bellman-gui) |
-| `src/lib/cytoscape-sync.ts` | `applyLayoutModelToCy` |
-| `src/lib/cytoscape-utils.ts` | `compoundAbsolutePosition`, measure/pin helpers, debug snapshots |
-| `src/lib/cytoscape-theme.ts` | Stylesheet (compound padding, min-width bias) |
-| `src/App.tsx` | Graph UI, resize handles, debug panel |
-
-## Tests
+## Development
 
 ```bash
-npm test
+npm install          # install all workspaces
+npm run build        # build library + demo
+npm test             # run library tests
+npm run test:coverage
+npm run docs         # generate API docs → docs/api/
+npm run attw         # build + TypeScript declaration check
 ```
+
+## Release (manual)
+
+1. Bump `version` in `packages/nested-cytoscope-vertex/package.json`
+2. Update `packages/nested-cytoscope-vertex/CHANGELOG.md`
+3. From repo root:
+
+```bash
+npm run build
+npm run test:coverage
+npm run docs
+npm run attw
+cd packages/nested-cytoscope-vertex
+npm publish --access public
+```
+
+## API documentation
+
+Generated TypeDoc output lives in [`docs/api/`](docs/api/) after `npm run docs`.
+
+## Monorepo layout
+
+| Path | Role |
+|------|------|
+| `packages/nested-cytoscope-vertex/` | Publishable library |
+| `apps/demo/` | Vite + React manual test harness |
 
 ## Relation to bellman-gui
 
-When a fix works here, port the same change to:
-
-- `src/lib/cytoscape-layout-sync.ts` (`applyLayoutModelToCy`)
-- `src/components/RoadmapGraph.tsx` (`measureCompoundSizes`)
-- `src/components/CompoundResizeHandles.tsx`
+This repo extracts and validates compound resize behaviour from bellman-gui. When a fix works here, port the same change back to the main app.

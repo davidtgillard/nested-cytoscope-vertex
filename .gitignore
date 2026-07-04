@@ -1,4 +1,8 @@
 node_modules
 dist
+packages/*/dist
+apps/demo/dist
+docs/api
+coverage
 *.local
 humans-only/**

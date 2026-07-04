@@ -8,6 +8,7 @@
  * in isolation.
  */
 
+/** @internal */
 export interface VisualBox {
   x1: number;
   y1: number;
@@ -15,16 +16,19 @@ export interface VisualBox {
   y2: number;
 }
 
+/** @internal */
 export interface Point {
   x: number;
   y: number;
 }
 
+/** @internal */
 export function boxesOverlap(left: VisualBox, right: VisualBox): boolean {
   return left.x1 < right.x2 && left.x2 > right.x1 && left.y1 < right.y2 && left.y2 > right.y1;
 }
 
 /** True if `box` overlaps any of the given obstacle boxes. */
+/** @internal */
 export function detectCollision(box: VisualBox, obstacles: VisualBox[]): boolean {
   return obstacles.some((obstacle) => boxesOverlap(box, obstacle));
 }
@@ -115,6 +119,7 @@ function resolveAgainstObstacles(
  * obstacle can't carry the box back outside bounds it already satisfied, since the
  * binary search only ever moves the candidate back toward the known-good `from` point.
  */
+/** @internal */
 export function resolvePosition(params: {
   from: Point;
   to: Point;
