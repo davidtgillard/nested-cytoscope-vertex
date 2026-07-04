@@ -1,5 +1,5 @@
 import type { Core } from "cytoscape";
-import { applyFrozenCompoundSize } from "./cytoscape-utils";
+import { applyFrozenCompoundSize, measureLeafFootprint } from "./cytoscape-utils";
 import { graphNodeModelPosition } from "./cytoscape-utils";
 import {
   absoluteCenter,
@@ -32,9 +32,11 @@ function modelDepth(model: WorkPackageLayoutModel, nodeId: string): number {
  */
 export function layoutModelFromCy(cy: Core, inputs: LayoutNodeInput[]): WorkPackageLayoutModel {
   const flat: Record<string, { x: number; y: number; w?: number; h?: number }> = {};
+  const measuredInputs: LayoutNodeInput[] = [];
   for (const input of inputs) {
     const node = cy.getElementById(input.id);
     if (node.empty()) {
+      measuredInputs.push(input);
       continue;
     }
     const absolute = graphNodeModelPosition(node);
@@ -54,8 +56,13 @@ export function layoutModelFromCy(cy: Core, inputs: LayoutNodeInput[]): WorkPack
       position.h = Number(height);
     }
     flat[input.id] = position;
+    measuredInputs.push(
+      !input.isCompound && input.parent
+        ? { ...input, footprint: input.footprint ?? measureLeafFootprint(node) }
+        : input,
+    );
   }
-  return buildLayoutModel(inputs, flat);
+  return buildLayoutModel(measuredInputs, flat);
 }
 
 /**

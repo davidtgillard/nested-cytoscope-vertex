@@ -136,6 +136,18 @@ export class GraphParent {
     return this.model;
   }
 
+  /**
+   * Records how many model units the parent's title currently needs, measured from its
+   * real rendered DOM box (see App.tsx). Mutates the model in place (no cy round-trip
+   * needed) so the very next drag/clamp computation picks it up immediately.
+   */
+  setTitleClearance(modelUnits: number): void {
+    const node = this.model?.nodes.get(this.id);
+    if (node) {
+      node.reservedTop = modelUnits;
+    }
+  }
+
   modelDebugSnapshot(): string {
     const model = this.model;
     if (!model) {

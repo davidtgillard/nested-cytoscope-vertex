@@ -23,6 +23,29 @@ export function graphNodeModelPosition(node: NodeSingular): Point {
   return node.position();
 }
 
+/**
+ * Measures a leaf's true rendered footprint relative to its own center, using
+ * Cytoscape's own label metrics (`boundingBox({ includeLabels })`) rather than a
+ * guessed constant. `text-valign: bottom` means the label hangs below the shape and can
+ * be wider than it, so the shape-only box gives the top extent (nothing renders above
+ * center) while the label-inclusive box gives the bottom/width extent. This works even
+ * while the node is hidden mid-drag (opacity 0), since boundingBox is geometry-based.
+ */
+export function measureLeafFootprint(node: NodeSingular): {
+  halfW: number;
+  halfHTop: number;
+  halfHBottom: number;
+} {
+  const center = node.position();
+  const shapeBox = node.boundingBox({ includeLabels: false, includeOverlays: false });
+  const fullBox = node.boundingBox({ includeLabels: true, includeOverlays: false });
+  return {
+    halfW: Math.max(center.x - fullBox.x1, fullBox.x2 - center.x),
+    halfHTop: center.y - shapeBox.y1,
+    halfHBottom: fullBox.y2 - center.y,
+  };
+}
+
 export function compoundSizeForContent(contentBox: {
   x1: number;
   y1: number;
@@ -46,7 +69,17 @@ export function compoundSizeForContent(contentBox: {
   };
 }
 
-export const INITIAL_COMPOUND_SLACK = 56;
+/**
+ * Extra room (beyond the tight content+padding fit) baked into the compound's *initial*
+ * size so the child starts with some room to be dragged around at all, rather than
+ * spawning already touching every edge. This constant is added once to both width and
+ * height and then split evenly on every side (the container is always centered on the
+ * child - see measureAndPinCompound below) - so it's the dominant term in how far the
+ * child can travel before hitting the (now tight) edge clamp, independent of
+ * COMPOUND_PADDING. Kept small since the edges themselves are already only as far away
+ * as COMPOUND_PADDING plus the child's own measured footprint demand.
+ */
+export const INITIAL_COMPOUND_SLACK = 24;
 
 /**
  * Resizes a plain (non-compound) node while keeping its top-left corner fixed.

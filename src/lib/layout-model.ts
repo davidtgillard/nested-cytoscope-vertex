@@ -3,6 +3,10 @@ import {
   COMPOUND_MIN_WIDTH,
   COMPOUND_PADDING,
 } from "./cytoscape-theme";
+import { boxesOverlap, detectCollision, resolvePosition, type Point, type VisualBox } from "./collision";
+
+export type { VisualBox };
+export { boxesOverlap };
 
 export interface NodePosition {
   x: number;
@@ -11,47 +15,40 @@ export interface NodePosition {
   h?: number;
 }
 
-export interface VisualBox {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-}
-
-function shiftBoxInside(
-  box: VisualBox,
-  interior: VisualBox,
-): { dx: number; dy: number } {
-  let dx = 0;
-  let dy = 0;
-  if (box.x1 < interior.x1) {
-    dx = interior.x1 - box.x1;
-  } else if (box.x2 > interior.x2) {
-    dx = interior.x2 - box.x2;
-  }
-  if (box.y1 < interior.y1) {
-    dy = interior.y1 - box.y1;
-  } else if (box.y2 > interior.y2) {
-    dy = interior.y2 - box.y2;
-  }
-  return { dx, dy };
-}
-
 function isOverflowNodeId(_id: string): boolean {
   return false;
 }
 
-/** Label-inclusive leaf footprint half-extents in model units (matches cytoscape theme). */
+/**
+ * Fallback label-inclusive leaf footprint half-extents in model units, used only when a
+ * node has no measured `footprint` (see LeafFootprint below). Real leaf nodes get a
+ * precise, asymmetric footprint measured from Cytoscape's own rendered label bounds
+ * (see measureLeafFootprint in cytoscape-utils.ts), since a label hangs below the shape
+ * and can be wider than it - a single symmetric half-height/width can't represent that.
+ */
 export const LEAF_VISUAL_HALF_W = 18;
 export const LEAF_VISUAL_HALF_H = 26;
 
 export const NODE_OVERLAP_PADDING = 8;
+
+/**
+ * A leaf's true visual footprint relative to its own center: how far its rendered shape
+ * and label actually extend on each side. Asymmetric because `text-valign: bottom` means
+ * only the shape (not the label) extends above center, while below center the label may
+ * reach further out than the shape, and the label can also be wider than the shape.
+ */
+export interface LeafFootprint {
+  halfW: number;
+  halfHTop: number;
+  halfHBottom: number;
+}
 
 export interface LayoutNodeInput {
   id: string;
   parent?: string;
   isCompound?: boolean;
   isOverflow?: boolean;
+  footprint?: LeafFootprint;
 }
 
 export interface LayoutNode {
@@ -60,6 +57,26 @@ export interface LayoutNode {
   size?: { w: number; h: number };
   isCompound: boolean;
   isOverflow: boolean;
+  footprint?: LeafFootprint;
+  /**
+   * Model-unit clearance a compound reserves at its top edge for its title, measured
+   * from the title's real rendered DOM box (see GraphParent.setTitleClearance) rather
+   * than assumed as a fixed constant. A DOM title has a fixed CSS pixel size that does
+   * not scale with Cytoscape's zoom, so the number of *model units* it needs changes
+   * with zoom - a static constant would drift as the compound is resized. Falls back to
+   * COMPOUND_PADDING.top (see compositeInteriorBox) until a real measurement lands.
+   */
+  reservedTop?: number;
+}
+
+function leafFootprint(node: LayoutNode | undefined): LeafFootprint {
+  return (
+    node?.footprint ?? {
+      halfW: LEAF_VISUAL_HALF_W,
+      halfHTop: LEAF_VISUAL_HALF_H,
+      halfHBottom: LEAF_VISUAL_HALF_H,
+    }
+  );
 }
 
 export interface WorkPackageLayoutModel {
@@ -78,6 +95,7 @@ export function cloneLayoutModel(model: WorkPackageLayoutModel): WorkPackageLayo
       ...node,
       center: { ...node.center },
       size: node.size ? { ...node.size } : undefined,
+      footprint: node.footprint ? { ...node.footprint } : undefined,
     });
   }
   return {
@@ -141,6 +159,7 @@ export function buildLayoutModel(
           : undefined,
       isCompound,
       isOverflow,
+      footprint: !isCompound ? input.footprint : undefined,
     });
   }
 
@@ -234,9 +253,10 @@ export function compositeInteriorBox(model: WorkPackageLayoutModel, compositeId:
   if (!outer) {
     return null;
   }
+  const topClearance = model.nodes.get(compositeId)?.reservedTop ?? COMPOUND_PADDING.top;
   return {
     x1: outer.x1 + COMPOUND_PADDING.left,
-    y1: outer.y1 + COMPOUND_PADDING.top,
+    y1: outer.y1 + topClearance,
     x2: outer.x2 - COMPOUND_PADDING.right,
     y2: outer.y2 - COMPOUND_PADDING.bottom,
   };
@@ -254,23 +274,35 @@ export function visualBox(model: WorkPackageLayoutModel, nodeId: string): Visual
 
   const center = absoluteCenter(model, nodeId);
   const pad = NODE_OVERLAP_PADDING;
+  const footprint = leafFootprint(node);
   return {
-    x1: center.x - LEAF_VISUAL_HALF_W - pad,
-    y1: center.y - LEAF_VISUAL_HALF_H - pad,
-    x2: center.x + LEAF_VISUAL_HALF_W + pad,
-    y2: center.y + LEAF_VISUAL_HALF_H + pad,
+    x1: center.x - footprint.halfW - pad,
+    y1: center.y - footprint.halfHTop - pad,
+    x2: center.x + footprint.halfW + pad,
+    y2: center.y + footprint.halfHBottom + pad,
   };
 }
 
-export function boxesOverlap(left: VisualBox, right: VisualBox): boolean {
-  return (
-    left.x1 < right.x2 &&
-    left.x2 > right.x1 &&
-    left.y1 < right.y2 &&
-    left.y2 > right.y1
-  );
+/**
+ * The obstacle list for a given moving node: every other node's current box, except
+ * ones it's allowed to overlap (its own ancestors/descendants - e.g. a child is always
+ * allowed inside its own parent). Shared by every clamp below so "what counts as an
+ * obstacle" is defined in exactly one place, and automatically grows to include more
+ * objects (e.g. a second child of the same parent) without any call site changing.
+ */
+function obstacleBoxesFor(model: WorkPackageLayoutModel, subjectId: string): VisualBox[] {
+  const boxes: VisualBox[] = [];
+  for (const [otherId] of model.nodes) {
+    if (otherId === subjectId || canOverlap(model, subjectId, otherId)) {
+      continue;
+    }
+    const box = visualBox(model, otherId);
+    if (box) {
+      boxes.push(box);
+    }
+  }
+  return boxes;
 }
-
 
 function descendantIds(model: WorkPackageLayoutModel, rootId: string): Set<string> {
   const result = new Set<string>([rootId]);
@@ -285,109 +317,6 @@ function descendantIds(model: WorkPackageLayoutModel, rootId: string): Set<strin
     }
   }
   return result;
-}
-
-function clampCenterForOverlap(
-  model: WorkPackageLayoutModel,
-  subjectId: string,
-  startCenter: { x: number; y: number },
-  proposedCenter: { x: number; y: number },
-  boxForCenter: (center: { x: number; y: number }) => VisualBox | null,
-): { x: number; y: number } {
-  const saved = model.nodes.get(subjectId)?.center;
-  if (!saved) {
-    return startCenter;
-  }
-
-  const overlapsAt = (center: { x: number; y: number }): boolean => {
-    setNodeCenter(model, subjectId, center);
-    const movingBox = boxForCenter(center);
-    if (!movingBox) {
-      return true;
-    }
-    for (const [otherId] of model.nodes) {
-      if (otherId === subjectId || canOverlap(model, subjectId, otherId)) {
-        continue;
-      }
-      const otherBox = visualBox(model, otherId);
-      if (otherBox && boxesOverlap(movingBox, otherBox)) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  if (!overlapsAt(proposedCenter)) {
-    setNodeCenter(model, subjectId, saved);
-    return proposedCenter;
-  }
-
-  let low = 0;
-  let high = 1;
-  let best = { ...startCenter };
-
-  for (let iteration = 0; iteration < 40; iteration++) {
-    const mid = (low + high) / 2;
-    const candidate = {
-      x: startCenter.x + (proposedCenter.x - startCenter.x) * mid,
-      y: startCenter.y + (proposedCenter.y - startCenter.y) * mid,
-    };
-
-    if (overlapsAt(candidate)) {
-      high = mid;
-    } else {
-      best = candidate;
-      low = mid;
-    }
-  }
-
-  setNodeCenter(model, subjectId, saved);
-  return best;
-}
-
-function clampChildInterior(
-  model: WorkPackageLayoutModel,
-  childId: string,
-  relativeCenter: { x: number; y: number },
-): { x: number; y: number } {
-  const parentId = model.parentOf.get(childId);
-  if (!parentId) {
-    return relativeCenter;
-  }
-
-  const interior = compositeInteriorRelativeBox(model, parentId);
-  if (!interior) {
-    return relativeCenter;
-  }
-
-  const footprint: VisualBox = {
-    x1: relativeCenter.x - LEAF_VISUAL_HALF_W,
-    y1: relativeCenter.y - LEAF_VISUAL_HALF_H,
-    x2: relativeCenter.x + LEAF_VISUAL_HALF_W,
-    y2: relativeCenter.y + LEAF_VISUAL_HALF_H,
-  };
-  const { dx, dy } = shiftBoxInside(footprint, interior);
-  return { x: relativeCenter.x + dx, y: relativeCenter.y + dy };
-}
-
-function compositeInteriorRelativeBox(
-  model: WorkPackageLayoutModel,
-  compositeId: string,
-): VisualBox | null {
-  const interior = compositeInteriorBox(model, compositeId);
-  if (!interior) {
-    return null;
-  }
-  const parentCenter = model.nodes.get(compositeId)?.center;
-  if (!parentCenter) {
-    return null;
-  }
-  return {
-    x1: interior.x1 - parentCenter.x,
-    y1: interior.y1 - parentCenter.y,
-    x2: interior.x2 - parentCenter.x,
-    y2: interior.y2 - parentCenter.y,
-  };
 }
 
 function childrenContentBoxAbsolute(model: WorkPackageLayoutModel, compositeId: string): VisualBox | null {
@@ -466,12 +395,22 @@ export function resizeCompoundBoxFromCorner(
   return { x1, y1, x2, y2 };
 }
 
-function clampResizeBoxForOverlap(
-  model: WorkPackageLayoutModel,
-  compositeId: string,
+/**
+ * Binary-searches the box interpolation from `startBox` to `proposedBox` for the point
+ * closest to `proposedBox` that doesn't collide with `obstacles`. Box-resize grows/shrinks
+ * independent edges rather than translating a fixed-size shape, so it can't reuse
+ * `resolvePosition`'s center-based interpolation directly - but it shares the same
+ * `detectCollision` predicate and obstacle list as the center-based clamps below.
+ */
+function resolveResizeBoxAgainstObstacles(
   startBox: VisualBox,
   proposedBox: VisualBox,
+  obstacles: VisualBox[],
 ): VisualBox {
+  if (obstacles.length === 0 || !detectCollision(proposedBox, obstacles)) {
+    return proposedBox;
+  }
+
   let low = 0;
   let high = 1;
   let best = { ...startBox };
@@ -485,19 +424,7 @@ function clampResizeBoxForOverlap(
       y2: startBox.y2 + (proposedBox.y2 - startBox.y2) * mid,
     };
 
-    let overlaps = false;
-    for (const [otherId] of model.nodes) {
-      if (otherId === compositeId || canOverlap(model, compositeId, otherId)) {
-        continue;
-      }
-      const otherBox = visualBox(model, otherId);
-      if (otherBox && boxesOverlap(candidate, otherBox)) {
-        overlaps = true;
-        break;
-      }
-    }
-
-    if (overlaps) {
+    if (detectCollision(candidate, obstacles)) {
       high = mid;
     } else {
       best = candidate;
@@ -515,19 +442,31 @@ export function moveComposite(
 ): WorkPackageLayoutModel {
   const next = cloneLayoutModel(model);
   const node = next.nodes.get(compositeId);
-  if (!node?.isCompound) {
+  if (!node?.isCompound || !node.size) {
     return next;
   }
 
+  const size = node.size;
+  const parentId = next.parentOf.get(compositeId);
+  const parentAbsolute = parentId ? absoluteCenter(next, parentId) : { x: 0, y: 0 };
+  const boxForCenter = (center: Point): VisualBox => {
+    const absCenter = { x: parentAbsolute.x + center.x, y: parentAbsolute.y + center.y };
+    return {
+      x1: absCenter.x - size.w / 2,
+      y1: absCenter.y - size.h / 2,
+      x2: absCenter.x + size.w / 2,
+      y2: absCenter.y + size.h / 2,
+    };
+  };
+
   const startCenter = { ...node.center };
-  const clamped = clampCenterForOverlap(
-    next,
-    compositeId,
-    startCenter,
-    newCenter,
-    () => compositeOuterBox(next, compositeId),
-  );
-  setNodeCenter(next, compositeId, clamped);
+  const resolved = resolvePosition({
+    from: startCenter,
+    to: newCenter,
+    obstacles: obstacleBoxesFor(next, compositeId),
+    boxForCenter,
+  });
+  setNodeCenter(next, compositeId, resolved);
   return next;
 }
 
@@ -538,28 +477,38 @@ export function moveChild(
 ): WorkPackageLayoutModel {
   const next = cloneLayoutModel(model);
   const node = next.nodes.get(childId);
-  if (!node || !next.parentOf.has(childId)) {
+  const parentId = next.parentOf.get(childId);
+  if (!node || !parentId) {
     return next;
   }
 
-  const startRelative = { ...node.center };
-  let proposed = clampChildInterior(next, childId, newRelativeCenter);
+  const footprint = leafFootprint(node);
+  const boxForCenter = (center: Point): VisualBox => ({
+    x1: center.x - footprint.halfW,
+    y1: center.y - footprint.halfHTop,
+    x2: center.x + footprint.halfW,
+    y2: center.y + footprint.halfHBottom,
+  });
 
-  const clampedRelative = clampCenterForOverlap(
-    next,
-    childId,
-    startRelative,
-    proposed,
-    (relativeCenter) => {
-      setNodeCenter(next, childId, relativeCenter);
-      const box = visualBox(next, childId);
-      setNodeCenter(next, childId, startRelative);
-      return box;
-    },
-  );
+  const parentAbsolute = absoluteCenter(next, parentId);
+  const startAbsolute = absoluteCenter(next, childId);
+  const proposedAbsolute = {
+    x: parentAbsolute.x + newRelativeCenter.x,
+    y: parentAbsolute.y + newRelativeCenter.y,
+  };
 
-  proposed = clampChildInterior(next, childId, clampedRelative);
-  setNodeCenter(next, childId, proposed);
+  const resolvedAbsolute = resolvePosition({
+    from: startAbsolute,
+    to: proposedAbsolute,
+    bounds: compositeInteriorBox(next, parentId),
+    obstacles: obstacleBoxesFor(next, childId),
+    boxForCenter,
+  });
+
+  setNodeCenter(next, childId, {
+    x: resolvedAbsolute.x - parentAbsolute.x,
+    y: resolvedAbsolute.y - parentAbsolute.y,
+  });
   return next;
 }
 
@@ -585,7 +534,11 @@ export function resizeComposite(
     dyModel,
     childrenBox,
   );
-  const clampedOuter = clampResizeBoxForOverlap(next, compositeId, startOuter, proposedOuter);
+  const clampedOuter = resolveResizeBoxAgainstObstacles(
+    startOuter,
+    proposedOuter,
+    obstacleBoxesFor(next, compositeId),
+  );
 
   const savedAbsolute = new Map<string, { x: number; y: number }>();
   for (const descendantId of descendantIds(next, compositeId)) {

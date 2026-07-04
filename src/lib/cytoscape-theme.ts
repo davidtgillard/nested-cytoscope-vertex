@@ -1,10 +1,18 @@
 import type { StylesheetStyle } from "cytoscape";
 
+/**
+ * Fixed clearance reserved inside the compound's border, independent of the child's own
+ * footprint (see LeafFootprint in layout-model.ts). `top` reserves room for the parent's
+ * title (`.compound-parent-label` in App.css: 20px font starting at top:10px, so ~40px
+ * clears its full line height); the rest is just a thin cosmetic gutter along the
+ * border, since the child's own measured shape/label footprint - not this padding - is
+ * what actually keeps its text from crossing the left/right/bottom edges.
+ */
 export const COMPOUND_PADDING = {
-  top: 52,
-  right: 36,
-  bottom: 36,
-  left: 36,
+  top: 40,
+  right: 8,
+  bottom: 8,
+  left: 8,
 } as const;
 
 export const COMPOUND_MIN_WIDTH = 80;

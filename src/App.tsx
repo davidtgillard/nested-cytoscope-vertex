@@ -172,6 +172,8 @@ export function App() {
   const cyRef = useRef<Core | null>(null);
   const compoundRef = useRef(DEMO_COMPOUND);
   const childDragCleanupRef = useRef<(() => void) | null>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLDivElement>(null);
   const resizeStartRef = useRef<{
     corner: ResizeCorner;
     startClientX: number;
@@ -219,6 +221,35 @@ export function App() {
     }
     setHandleRect(compound.renderedHandleBox(cy));
   }, [compound]);
+
+  /**
+   * The parent's title is a DOM overlay with a fixed CSS font-size, so it never scales
+   * with Cytoscape's zoom the way real Cytoscape-rendered geometry does. Measuring its
+   * actual rendered box (instead of assuming a fixed number of model units) and dividing
+   * by the current zoom keeps "how much room the title needs" correct at any zoom level -
+   * mirroring how measureLeafFootprint measures the child instead of guessing.
+   */
+  const refreshTitleClearance = useCallback(() => {
+    const cy = cyRef.current;
+    const overlayEl = overlayRef.current;
+    const titleEl = titleRef.current;
+    if (!cy || !overlayEl || !titleEl) {
+      return;
+    }
+    const zoom = cy.zoom();
+    if (!(zoom > 0)) {
+      return;
+    }
+    const overlayRect = overlayEl.getBoundingClientRect();
+    const titleRect = titleEl.getBoundingClientRect();
+    const TITLE_BOTTOM_BUFFER_PX = 6;
+    const clearancePx = titleRect.bottom - overlayRect.top + TITLE_BOTTOM_BUFFER_PX;
+    compound.setTitleClearance(clearancePx / zoom);
+  }, [compound]);
+
+  useEffect(() => {
+    refreshTitleClearance();
+  }, [parentDragVisual, refreshTitleClearance]);
 
   useEffect(() => {
     compound.setSyncMode(syncMode);
@@ -475,6 +506,7 @@ export function App() {
           />
           {parentDragVisual ? (
             <div
+              ref={overlayRef}
               className={`compound-parent-overlay${parentDragVisual.selected ? " is-selected" : ""}`}
               style={{
                 left: parentDragVisual.left,
@@ -483,7 +515,9 @@ export function App() {
                 height: parentDragVisual.height,
               }}
             >
-              <div className="compound-parent-label">{parentDragVisual.label}</div>
+              <div ref={titleRef} className="compound-parent-label">
+                {parentDragVisual.label}
+              </div>
             </div>
           ) : null}
           {childDragVisual ? (
