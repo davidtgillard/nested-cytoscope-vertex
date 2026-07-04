@@ -29,7 +29,7 @@ export const LEAF_SELECTION_OUTLINE_COLOR = "#38bdf8";
  * How close a child's measured footprint may get to the parent's border (all four
  * sides) while being dragged, expressed in real screen pixels rather than model units -
  * so it stays visually consistent no matter how far Cytoscape's `fit: true` initial
- * layout ends up zooming (see GraphParent.setEdgeClearance). Tune this directly to make
+ * layout ends up zooming (see GraphParentVertex.setEdgeClearance). Tune this directly to make
  * the child hug the edges more or less tightly.
  */
 export const CHILD_EDGE_CLEARANCE_PX = -5;

@@ -6,6 +6,7 @@ import { applyLayoutModelToCy, layoutModelFromCy } from "./src/lib/cytoscape-syn
 import { childrenFitBoxAbsoluteFromCy, compoundAbsolutePosition } from "./src/lib/cytoscape-utils";
 import {
   ALL_LOOSE_EDGES,
+  absoluteCenter,
   buildLayoutModel,
   compositeOuterBox,
   parentOuterBoundsFromChildFit,
@@ -13,6 +14,29 @@ import {
   resizeComposite,
   resizeLooseEdgesFromOuter,
 } from "./src/lib/layout-model";
+
+/** Headless fixture with explicit parent dimensions (replaces the old preset-sized scenario). */
+function sizedDemoElements(): cytoscape.ElementDefinition[] {
+  const elements = DEMO_COMPOUND.buildElements();
+  const parent = elements[0];
+  if (parent.data) {
+    parent.data = {
+      ...parent.data,
+      compoundWidth: 420,
+      compoundHeight: 280,
+    };
+  }
+  return elements;
+}
+
+type ParentVertexTestApi = {
+  beginChildDrag(cy: cytoscape.Core, childId: string): void;
+  syncChildDragByDelta(cy: cytoscape.Core, childId: string, delta: { x: number; y: number }): void;
+  finishChildDrag(cy: cytoscape.Core): void;
+  syncParentDragFromCy(cy: cytoscape.Core): void;
+};
+
+const testCompound = DEMO_COMPOUND as typeof DEMO_COMPOUND & ParentVertexTestApi;
 
 describe("toy nested compound resize", () => {
   it("model sync keeps child absolute position on SE resize", () => {
@@ -39,11 +63,11 @@ describe("toy nested compound resize", () => {
       "wp-invoicing": { x: 0, y: 0, w: 420, h: 280 },
       "wp-pdf-export": { x: 0, y: 0 },
     });
-    applyLayoutModelToCy(cy, model, "model");
+    applyLayoutModelToCy(cy, model);
 
     const before = compoundAbsolutePosition(cy.getElementById("wp-pdf-export"));
     model = resizeComposite(model, "wp-invoicing", "se", 80, 60);
-    applyLayoutModelToCy(cy, model, "model");
+    applyLayoutModelToCy(cy, model);
     const after = compoundAbsolutePosition(cy.getElementById("wp-pdf-export"));
 
     expect(after.x).toBeCloseTo(before.x, 3);
@@ -72,7 +96,7 @@ describe("toy nested compound resize", () => {
     ];
     let model = layoutModelFromCy(cy, inputs);
     model = resizeComposite(model, "wp-invoicing", "nw", -30, -20);
-    applyLayoutModelToCy(cy, model, "model");
+    applyLayoutModelToCy(cy, model);
     const roundTrip = layoutModelFromCy(cy, inputs);
     const child = roundTrip.nodes.get("wp-pdf-export");
     expect(child?.center.x).toBeCloseTo(model.nodes.get("wp-pdf-export")!.center.x, 3);
@@ -83,17 +107,17 @@ describe("toy nested compound resize", () => {
     const cy = cytoscape({
       headless: true,
       style: CYTOSCAPE_STYLESHEET,
-      elements: DEMO_COMPOUND.buildElements("preset-sized"),
+      elements: sizedDemoElements(),
     });
 
-    const before = DEMO_COMPOUND.initializeFromCy(cy, "preset-sized", true);
+    const before = DEMO_COMPOUND.initializeFromCy(cy);
     const startAbsolute = compoundAbsolutePosition(cy.getElementById("wp-pdf-export"));
     const draggedDelta = { x: 60, y: 40 };
     const draggedAbsolute = { x: startAbsolute.x + draggedDelta.x, y: startAbsolute.y + draggedDelta.y };
 
-    DEMO_COMPOUND.beginChildDrag(cy);
+    testCompound.beginChildDrag(cy, "wp-pdf-export");
     cy.getElementById("wp-invoicing").position({ x: 25, y: -15 });
-    DEMO_COMPOUND.syncChildDragByDelta(cy, draggedDelta);
+    testCompound.syncChildDragByDelta(cy, "wp-pdf-export", draggedDelta);
     const during = DEMO_COMPOUND.liveSnapshot(cy);
 
     expect(during.parent.center.x).toBeCloseTo(before.parent.center.x, 3);
@@ -103,7 +127,7 @@ describe("toy nested compound resize", () => {
     expect(during.children["wp-pdf-export"].absolute.x).toBeCloseTo(draggedAbsolute.x, 3);
     expect(during.children["wp-pdf-export"].absolute.y).toBeCloseTo(draggedAbsolute.y, 3);
 
-    DEMO_COMPOUND.finishChildDrag(cy);
+    testCompound.finishChildDrag(cy);
     const after = DEMO_COMPOUND.snapshot(cy);
     const parentPos = cy.getElementById("wp-invoicing").position();
     const childPos = cy.getElementById("wp-pdf-export").position();
@@ -116,21 +140,21 @@ describe("toy nested compound resize", () => {
     );
     expect(parentPos.x).toBeCloseTo(before.parent.center.x, 3);
     expect(parentPos.y).toBeCloseTo(before.parent.center.y, 3);
-    expect(childPos.x).toBeCloseTo(draggedDelta.x, 3);
-    expect(childPos.y).toBeCloseTo(draggedDelta.y, 3);
+    expect(childPos.x).toBeCloseTo(draggedAbsolute.x, 3);
+    expect(childPos.y).toBeCloseTo(draggedAbsolute.y, 3);
   });
 
   it("parent drag sync copies the dragged center into the model", () => {
     const cy = cytoscape({
       headless: true,
       style: CYTOSCAPE_STYLESHEET,
-      elements: DEMO_COMPOUND.buildElements("preset-sized"),
+      elements: sizedDemoElements(),
     });
 
-    DEMO_COMPOUND.initializeFromCy(cy, "preset-sized", true);
+    DEMO_COMPOUND.initializeFromCy(cy);
     cy.getElementById("wp-invoicing").position({ x: 55, y: -25 });
 
-    DEMO_COMPOUND.syncParentDragFromCy(cy);
+    testCompound.syncParentDragFromCy(cy);
 
     expect(DEMO_COMPOUND.getModel()?.nodes.get("wp-invoicing")?.center.x).toBeCloseTo(55, 3);
     expect(DEMO_COMPOUND.getModel()?.nodes.get("wp-invoicing")?.center.y).toBeCloseTo(-25, 3);
@@ -140,26 +164,16 @@ describe("toy nested compound resize", () => {
     const cy = cytoscape({
       headless: true,
       style: CYTOSCAPE_STYLESHEET,
-      elements: DEMO_COMPOUND.buildElements("preset-sized"),
+      elements: sizedDemoElements(),
     });
 
-    DEMO_COMPOUND.initializeFromCy(cy, "preset-sized", true);
+    DEMO_COMPOUND.initializeFromCy(cy);
 
-    // Simulate the hidden Cytoscape child drifting away from the authoritative model.
-    // Starting a new detached drag should preserve the model state even if the visual
-    // drag anchor is taken from the currently visible Cytoscape node position.
     cy.getElementById("wp-pdf-export").position({ x: 70, y: 35 });
     const modelBefore = DEMO_COMPOUND.getModel();
-    const expectedAbsolute = modelBefore && {
-      x:
-        modelBefore.nodes.get("wp-invoicing")!.center.x +
-        modelBefore.nodes.get("wp-pdf-export")!.center.x,
-      y:
-        modelBefore.nodes.get("wp-invoicing")!.center.y +
-        modelBefore.nodes.get("wp-pdf-export")!.center.y,
-    };
+    const expectedAbsolute = modelBefore && absoluteCenter(modelBefore, "wp-pdf-export");
 
-    DEMO_COMPOUND.beginChildDrag(cy);
+    testCompound.beginChildDrag(cy, "wp-pdf-export");
     const during = DEMO_COMPOUND.liveSnapshot(cy);
 
     expect(expectedAbsolute).not.toBeNull();
@@ -232,7 +246,7 @@ describe("toy nested compound resize", () => {
     let model = layoutModelFromCy(cy, inputs);
     const reservedEdge = -2;
     model.nodes.get("parent")!.reservedEdge = reservedEdge;
-    applyLayoutModelToCy(cy, model, "model");
+    applyLayoutModelToCy(cy, model);
 
     const childrenBox = childrenFitBoxAbsoluteFromCy(cy, model, "parent");
     expect(childrenBox).not.toBeNull();
@@ -247,14 +261,14 @@ describe("toy nested compound resize", () => {
     expect(outer.x2).toBeCloseTo(childrenBox!.x2 + reservedEdge, 2);
   });
 
-  it("SE shrink on preset parent only moves dragged east and south edges", () => {
+  it("SE shrink on sized demo parent only moves dragged east and south edges", () => {
     const cy = cytoscape({
       headless: true,
       style: CYTOSCAPE_STYLESHEET,
-      elements: DEMO_COMPOUND.buildElements("preset-sized"),
+      elements: sizedDemoElements(),
     });
 
-    DEMO_COMPOUND.initializeFromCy(cy, "preset-sized", true);
+    DEMO_COMPOUND.initializeFromCy(cy);
     const reservedEdge = -2;
     DEMO_COMPOUND.setEdgeClearance(reservedEdge);
 
@@ -416,5 +430,36 @@ describe("toy nested compound resize", () => {
     expect(outer.y2).toBeCloseTo(expectedMinBottom, 3);
     expect(outer.x1).toBeCloseTo(startOuter.x1, 3);
     expect(outer.y1).toBeCloseTo(startOuter.y1, 3);
+  });
+
+  it("GraphParentVertex resize preserves both demo children absolutes", () => {
+    const cy = cytoscape({
+      headless: true,
+      style: CYTOSCAPE_STYLESHEET,
+      elements: sizedDemoElements(),
+    });
+
+    DEMO_COMPOUND.initializeFromCy(cy);
+    const beforePdf = compoundAbsolutePosition(cy.getElementById("wp-pdf-export"));
+    const beforeEmail = compoundAbsolutePosition(cy.getElementById("wp-email-export"));
+
+    const model = DEMO_COMPOUND.getModel()!;
+    const childrenBox = childrenFitBoxAbsoluteFromCy(cy, model, "wp-invoicing");
+    expect(childrenBox).not.toBeNull();
+
+    const resized = resizeComposite(model, "wp-invoicing", "se", 40, 30, {
+      childrenBox: childrenBox!,
+      edgeClearance: 0,
+      looseEdges: ALL_LOOSE_EDGES,
+    });
+    applyLayoutModelToCy(cy, resized);
+
+    const afterPdf = compoundAbsolutePosition(cy.getElementById("wp-pdf-export"));
+    const afterEmail = compoundAbsolutePosition(cy.getElementById("wp-email-export"));
+
+    expect(afterPdf.x).toBeCloseTo(beforePdf.x, 3);
+    expect(afterPdf.y).toBeCloseTo(beforePdf.y, 3);
+    expect(afterEmail.x).toBeCloseTo(beforeEmail.x, 3);
+    expect(afterEmail.y).toBeCloseTo(beforeEmail.y, 3);
   });
 });

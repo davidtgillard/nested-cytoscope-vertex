@@ -60,7 +60,7 @@ export interface LayoutNode {
   footprint?: LeafFootprint;
   /**
    * Model-unit equivalent of CHILD_EDGE_CLEARANCE_PX at the current zoom (see
-   * GraphParent.setEdgeClearance), applied to all four interior edges - including the
+   * GraphParentVertex.setEdgeClearance), applied to all four interior edges - including the
    * top, since the title now renders above the compound's perimeter (see
    * `.compound-parent-label` in App.css) and no longer needs its own interior clearance.
    * Recomputed every render tick because zoom can change at any time; falls back to

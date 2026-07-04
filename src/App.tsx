@@ -1,4 +1,4 @@
-import { type Core, type EventObject } from "cytoscape";
+import { type Core } from "cytoscape";
 import {
   type CSSProperties,
   useCallback,
@@ -8,7 +8,6 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { type SyncMode } from "./lib/cytoscape-sync";
 import {
   CHILD_EDGE_CLEARANCE_PX,
   LEAF_LABEL_COLOR,
@@ -29,17 +28,8 @@ import {
   DEMO_COMPOUND,
   type ParentDragVisual,
   type RenderedBoxRect,
-  type Scenario,
 } from "./lib/compound-graph";
 import { type ResizeCorner, type ResizeChildConstraints } from "./lib/layout-model";
-
-type ResizeTiming = "live" | "deferred";
-
-const SYNC_MODES: { id: SyncMode; label: string }[] = [
-  { id: "model", label: "model (bellman current)" },
-  { id: "model-plus-frozen-top-left", label: "model + frozen top-left (old)" },
-  { id: "cy-direct-frozen", label: "cy direct frozen (naive)" },
-];
 
 const CORNERS: ResizeCorner[] = ["nw", "ne", "sw", "se"];
 const HANDLE_SIZE = 12;
@@ -133,127 +123,6 @@ function readComputedChildVisualStyle(
   };
 }
 
-function clientPointFromDomEvent(
-  event: MouseEvent | PointerEvent | TouchEvent,
-): { clientX: number; clientY: number } | null {
-  if ("clientX" in event && "clientY" in event) {
-    return { clientX: event.clientX, clientY: event.clientY };
-  }
-  const touch = event.touches[0] ?? event.changedTouches[0];
-  if (!touch) {
-    return null;
-  }
-  return { clientX: touch.clientX, clientY: touch.clientY };
-}
-
-function clientPointFromOriginalEvent(originalEvent: Event | undefined): { clientX: number; clientY: number } | null {
-  if (!originalEvent) {
-    return null;
-  }
-  if (
-    originalEvent instanceof MouseEvent ||
-    originalEvent instanceof PointerEvent ||
-    originalEvent instanceof TouchEvent
-  ) {
-    return clientPointFromDomEvent(originalEvent);
-  }
-  return null;
-}
-
-function wireDetachedDragListeners(
-  originalEvent: Event | undefined,
-  onMove: (event: MouseEvent | PointerEvent | TouchEvent) => void,
-  onUp: (event: MouseEvent | PointerEvent | TouchEvent) => void,
-): () => void {
-  const pointerStartEvent = originalEvent instanceof PointerEvent ? originalEvent : null;
-  let active = true;
-  const pointerTarget =
-    pointerStartEvent && pointerStartEvent.target instanceof Element
-      ? pointerStartEvent.target
-      : null;
-
-  if (pointerStartEvent && pointerTarget && "setPointerCapture" in pointerTarget) {
-    try {
-      pointerTarget.setPointerCapture(pointerStartEvent.pointerId);
-    } catch {
-      // Ignore capture failures; the window listeners below are the real fallback.
-    }
-  }
-
-  const onPointerMove = (event: PointerEvent) => {
-    if (!active) {
-      return;
-    }
-    if (pointerStartEvent && event.pointerId !== pointerStartEvent.pointerId) {
-      return;
-    }
-    onMove(event);
-  };
-  const onPointerUp = (event: PointerEvent) => {
-    if (!active) {
-      return;
-    }
-    if (pointerStartEvent && event.pointerId !== pointerStartEvent.pointerId) {
-      return;
-    }
-    active = false;
-    onUp(event);
-  };
-  const onMouseMove = (event: MouseEvent) => {
-    if (!active) {
-      return;
-    }
-    onMove(event);
-  };
-  const onMouseUp = (event: MouseEvent) => {
-    if (!active) {
-      return;
-    }
-    active = false;
-    onUp(event);
-  };
-  const onTouchMove = (event: TouchEvent) => {
-    if (!active) {
-      return;
-    }
-    onMove(event);
-  };
-  const onTouchUp = (event: TouchEvent) => {
-    if (!active) {
-      return;
-    }
-    active = false;
-    onUp(event);
-  };
-
-  window.addEventListener("pointermove", onPointerMove, true);
-  window.addEventListener("pointerup", onPointerUp, true);
-  window.addEventListener("pointercancel", onPointerUp, true);
-  window.addEventListener("mousemove", onMouseMove, true);
-  window.addEventListener("mouseup", onMouseUp, true);
-  window.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
-  window.addEventListener("touchend", onTouchUp, { capture: true, passive: false });
-  window.addEventListener("touchcancel", onTouchUp, { capture: true, passive: false });
-  return () => {
-    active = false;
-    window.removeEventListener("pointermove", onPointerMove, true);
-    window.removeEventListener("pointerup", onPointerUp, true);
-    window.removeEventListener("pointercancel", onPointerUp, true);
-    window.removeEventListener("mousemove", onMouseMove, true);
-    window.removeEventListener("mouseup", onMouseUp, true);
-    window.removeEventListener("touchmove", onTouchMove, true);
-    window.removeEventListener("touchend", onTouchUp, true);
-    window.removeEventListener("touchcancel", onTouchUp, true);
-    if (pointerTarget && pointerStartEvent && "releasePointerCapture" in pointerTarget) {
-      try {
-        pointerTarget.releasePointerCapture(pointerStartEvent.pointerId);
-      } catch {
-        // Ignore release failures during cleanup.
-      }
-    }
-  };
-}
-
 export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const childLabelProbeRef = useRef<HTMLDivElement>(null);
@@ -261,7 +130,6 @@ export function App() {
   const childSelectedNodeProbeRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const compoundRef = useRef(DEMO_COMPOUND);
-  const childDragCleanupRef = useRef<(() => void) | null>(null);
   const childVisualStyleSignatureRef = useRef("");
   const childVisualStyleRef = useRef<ChildVisualStyle>(DEFAULT_CHILD_VISUAL_STYLE);
   const referenceZoomRef = useRef(1);
@@ -276,10 +144,6 @@ export function App() {
     moved: boolean;
   } | null>(null);
 
-  const [scenario, setScenario] = useState<Scenario>("measured");
-  const [syncMode, setSyncMode] = useState<SyncMode>("model");
-  const [preserveOnMeasure, setPreserveOnMeasure] = useState(true);
-  const [resizeTiming, setResizeTiming] = useState<ResizeTiming>("live");
   const [graphKey, setGraphKey] = useState(0);
   const [handleRect, setHandleRect] = useState<{
     left: number;
@@ -295,6 +159,7 @@ export function App() {
   const [minResizeVisual, setMinResizeVisual] = useState<RenderedBoxRect | null>(null);
 
   const compound = compoundRef.current;
+  const probeChild = compound.children[0];
 
   const refreshDebug = useCallback(() => {
     const cy = cyRef.current;
@@ -364,15 +229,6 @@ export function App() {
     [applyConfiguredChildVisualStyle],
   );
 
-  /**
-   * The child's left/right/bottom/top edge clearance needs to stay a constant number of
-   * *screen pixels*, not model units, so it reads correctly no matter how far
-   * Cytoscape's `fit: true` layout has zoomed in or out - CHILD_EDGE_CLEARANCE_PX is
-   * authored in pixels so it's easy to tune independent of zoom. There's no DOM element
-   * to measure here, so it's just divided by zoom directly. (The title itself now
-   * renders above the compound's perimeter - see `.compound-parent-label` in App.css -
-   * so it no longer needs its own interior clearance.)
-   */
   const refreshInteriorClearances = useCallback(() => {
     const cy = cyRef.current;
     if (!cy) {
@@ -391,10 +247,6 @@ export function App() {
   }, [parentDragVisual, refreshInteriorClearances]);
 
   useEffect(() => {
-    compound.setSyncMode(syncMode);
-  }, [compound, syncMode]);
-
-  useEffect(() => {
     const labelProbe = childLabelProbeRef.current;
     const nodeProbe = childNodeProbeRef.current;
     const selectedNodeProbe = childSelectedNodeProbeRef.current;
@@ -409,11 +261,7 @@ export function App() {
       if (!syncConfiguredChildVisualStyle(cy)) {
         return;
       }
-      if (scenario === "measured") {
-        setGraphKey((value) => value + 1);
-        return;
-      }
-      refreshDebug();
+      setGraphKey((value) => value + 1);
     };
     const resizeObserver = new ResizeObserver(syncFromCss);
     resizeObserver.observe(labelProbe);
@@ -435,7 +283,7 @@ export function App() {
       resizeObserver.disconnect();
       mutationObserver?.disconnect();
     };
-  }, [refreshDebug, scenario, syncConfiguredChildVisualStyle]);
+  }, [syncConfiguredChildVisualStyle]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -443,13 +291,13 @@ export function App() {
       return;
     }
 
-    const cy = createDemoCy(container, scenario);
+    const cy = createDemoCy(container);
     cyRef.current = cy;
 
     cy.ready(() => {
       referenceZoomRef.current = cy.zoom() > 0 ? cy.zoom() : 1;
       applyConfiguredChildVisualStyle(cy);
-      const snap = compound.initializeFromCy(cy, scenario, preserveOnMeasure);
+      const snap = compound.initializeFromCy(cy);
       setBaseline(snap);
       setLiveSnapshot(snap);
       refreshDebug();
@@ -471,61 +319,20 @@ export function App() {
     };
     cy.on("select unselect", onSelectionChange);
 
-    const stopChildDrag = () => {
-      compound.finishChildDrag(cy);
-      childDragCleanupRef.current?.();
-      childDragCleanupRef.current = null;
-      recomputeHandles();
-      refreshDebug();
-    };
-
-    const onChildDragStart = (event: EventObject) => {
-      if (event.target.id() !== compound.child.id) {
-        return;
-      }
-
-      const clientPoint = clientPointFromOriginalEvent(event.originalEvent as Event | undefined);
-      if (!clientPoint) {
-        return;
-      }
-
-      const originalEvent = event.originalEvent as Event | undefined;
-      originalEvent?.preventDefault?.();
-      originalEvent?.stopPropagation?.();
-
-      childDragCleanupRef.current?.();
-      childDragCleanupRef.current = null;
-
-      const baselineSnap = compound.snapshot(cy);
-      setBaseline(baselineSnap);
-      setLiveSnapshot(baselineSnap);
-
-      compound.beginChildDrag(cy);
-      refreshDebug();
-
-      const startClientPoint = clientPoint;
-
-      const onWindowMove = (domEvent: MouseEvent | PointerEvent | TouchEvent) => {
-        const nextClientPoint = clientPointFromDomEvent(domEvent);
-        if (!nextClientPoint) {
-          return;
-        }
-        domEvent.preventDefault();
-        compound.syncChildDragByDelta(cy, {
-          x: (nextClientPoint.clientX - startClientPoint.clientX) / cy.zoom(),
-          y: (nextClientPoint.clientY - startClientPoint.clientY) / cy.zoom(),
-        });
+    compound.attachChildDragHandlers(cy, {
+      onStart: (_childId, snap) => {
+        setBaseline(snap);
+        setLiveSnapshot(snap);
         refreshDebug();
-      };
-
-      const onWindowUp = (domEvent: MouseEvent | PointerEvent | TouchEvent) => {
-        domEvent.preventDefault();
-        stopChildDrag();
-      };
-
-      childDragCleanupRef.current = wireDetachedDragListeners(originalEvent, onWindowMove, onWindowUp);
-    };
-    cy.on("tapstart", `node#${compound.child.id}`, onChildDragStart);
+      },
+      onMove: () => {
+        refreshDebug();
+      },
+      onEnd: () => {
+        recomputeHandles();
+        refreshDebug();
+      },
+    });
 
     compound.attachParentDragHandlers(cy, {
       onGrab: (snap) => {
@@ -540,13 +347,11 @@ export function App() {
     });
 
     return () => {
-      childDragCleanupRef.current?.();
-      childDragCleanupRef.current = null;
       cy.destroy();
       cyRef.current = null;
       childVisualStyleSignatureRef.current = "";
     };
-  }, [applyConfiguredChildVisualStyle, graphKey, preserveOnMeasure, recomputeHandles, refreshDebug, scenario, compound, syncConfiguredChildVisualStyle]);
+  }, [applyConfiguredChildVisualStyle, graphKey, recomputeHandles, refreshDebug, compound, syncConfiguredChildVisualStyle]);
 
   const applyResize = useCallback(
     (clientX: number, clientY: number) => {
@@ -559,38 +364,16 @@ export function App() {
       const dxModel = (clientX - active.startClientX) / active.zoom;
       const dyModel = (clientY - active.startClientY) / active.zoom;
       compound.resizeFromCorner(active.corner, dxModel, dyModel, active.startModel, active.constraints);
-
-      if (resizeTiming === "live") {
-        compound.syncToCy(cy);
-        recomputeHandles();
-      }
-
+      compound.syncToCy(cy);
+      recomputeHandles();
       refreshDebug();
     },
-    [compound, recomputeHandles, refreshDebug, resizeTiming],
+    [compound, recomputeHandles, refreshDebug],
   );
 
-  const finishResize = useCallback(
-    (clientX: number, clientY: number) => {
-      const active = resizeStartRef.current;
-      const cy = cyRef.current;
-      if (!active || !cy) {
-        return;
-      }
-
-      if (active.moved) {
-        if (resizeTiming === "deferred") {
-          applyResize(clientX, clientY);
-          compound.syncToCy(cy);
-          recomputeHandles();
-          refreshDebug();
-        }
-      }
-
-      resizeStartRef.current = null;
-    },
-    [applyResize, compound, recomputeHandles, refreshDebug, resizeTiming],
-  );
+  const finishResize = useCallback(() => {
+    resizeStartRef.current = null;
+  }, []);
 
   const onHandlePointerDown = useCallback(
     (corner: ResizeCorner) => (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -636,56 +419,6 @@ export function App() {
     <div className="app">
       <div className="graph-panel">
         <div className="toolbar">
-          <label>
-            Scenario
-            <select
-              value={scenario}
-              onChange={(event) => {
-                setScenario(event.target.value as Scenario);
-                setGraphKey((value) => value + 1);
-              }}
-            >
-              <option value="measured">Measured (no saved w/h — like bundled example)</option>
-              <option value="preset-sized">Preset sized (420×280 in layout)</option>
-            </select>
-          </label>
-
-          <label>
-            Cy sync mode
-            <select value={syncMode} onChange={(event) => setSyncMode(event.target.value as SyncMode)}>
-              {SYNC_MODES.map((mode) => (
-                <option key={mode.id} value={mode.id}>
-                  {mode.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Resize timing
-            <select
-              value={resizeTiming}
-              onChange={(event) => setResizeTiming(event.target.value as ResizeTiming)}
-            >
-              <option value="live">Live (sync every pointermove)</option>
-              <option value="deferred">Deferred (sync on pointerup)</option>
-            </select>
-          </label>
-
-          <label>
-            Measure pinning
-            <select
-              value={preserveOnMeasure ? "preserve" : "naive"}
-              onChange={(event) => {
-                setPreserveOnMeasure(event.target.value === "preserve");
-                setGraphKey((value) => value + 1);
-              }}
-            >
-              <option value="preserve">Preserve child absolute on measure</option>
-              <option value="naive">Naive applyFrozenCompoundSize only</option>
-            </select>
-          </label>
-
           <button type="button" className="reset-button" onClick={() => setGraphKey((value) => value + 1)}>
             Reset graph
           </button>
@@ -693,7 +426,7 @@ export function App() {
 
         <div className="graph-shell">
           <div ref={childLabelProbeRef} className="child-drag-label style-probe">
-            {compound.child.label}
+            {probeChild?.label ?? "child"}
           </div>
           <div ref={childNodeProbeRef} className="child-drag-node style-probe" />
           <div ref={childSelectedNodeProbeRef} className="child-drag-node is-selected style-probe" />
@@ -802,10 +535,10 @@ export function App() {
                     }}
                     onPointerUp={(event) => {
                       event.preventDefault();
-                      finishResize(event.clientX, event.clientY);
+                      finishResize();
                     }}
-                    onPointerCancel={(event) => {
-                      finishResize(event.clientX, event.clientY);
+                    onPointerCancel={() => {
+                      finishResize();
                     }}
                   />
                 );
@@ -817,8 +550,14 @@ export function App() {
       <aside className="debug-panel">
         <h1>Nested compound resize toy</h1>
         <p>
-          Mirrors bellman-gui&apos;s <code>wp-invoicing</code> → <code>wp-pdf-export</code> setup.
-          Drag the child or a corner handle and watch whether parent absolute coordinates drift.
+          Mirrors bellman-gui&apos;s <code>wp-invoicing</code> compound with{" "}
+          {compound.children.map((child, index) => (
+            <span key={child.id}>
+              {index > 0 ? ", " : null}
+              <code>{child.label}</code>
+            </span>
+          ))}
+          children. Drag a child or a corner handle and watch whether absolute coordinates drift.
         </p>
 
         <h2>Child absolute delta (since gesture start)</h2>
@@ -834,7 +573,7 @@ export function App() {
             })}
           </pre>
         ) : (
-          <pre>Drag the child or a handle to compare.</pre>
+          <pre>Drag a child or a handle to compare.</pre>
         )}
 
         <h2>Live Cytoscape snapshot</h2>

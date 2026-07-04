@@ -1,17 +1,11 @@
 import type { Core } from "cytoscape";
-import { applyFrozenCompoundSize, measureLeafFootprint } from "./cytoscape-utils";
-import { graphNodeModelPosition } from "./cytoscape-utils";
+import { graphNodeModelPosition, measureLeafFootprint } from "./cytoscape-utils";
 import {
   absoluteCenter,
   buildLayoutModel,
   type LayoutNodeInput,
   type WorkPackageLayoutModel,
 } from "./layout-model";
-
-export type SyncMode =
-  | "model"
-  | "model-plus-frozen-top-left"
-  | "cy-direct-frozen";
 
 function modelDepth(model: WorkPackageLayoutModel, nodeId: string): number {
   let depth = 0;
@@ -66,9 +60,8 @@ export function layoutModelFromCy(cy: Core, inputs: LayoutNodeInput[]): WorkPack
 }
 
 /**
- * bellman-gui current: model centre is authoritative. The container is a plain node
- * (see cytoscape-theme.ts), so writing every node's absolute center directly is all
- * that's needed - there's no compound bounds-fitting to fight against.
+ * Model centre is authoritative. The container is a plain node (see cytoscape-theme.ts),
+ * so writing every node's absolute center directly is all that's needed.
  */
 function applyModelSync(cy: Core, model: WorkPackageLayoutModel): void {
   const sortedIds = [...model.nodes.keys()].sort(
@@ -104,60 +97,7 @@ function applyModelSync(cy: Core, model: WorkPackageLayoutModel): void {
   });
 }
 
-/** Old bellman behaviour: applyFrozenCompoundSize after positioning children. */
-function applyModelPlusFrozenSync(cy: Core, model: WorkPackageLayoutModel): void {
+export function applyLayoutModelToCy(cy: Core, model: WorkPackageLayoutModel): void {
   applyModelSync(cy, model);
-  cy.batch(() => {
-    for (const [nodeId, layoutNode] of model.nodes) {
-      if (!layoutNode.isCompound || !layoutNode.size) {
-        continue;
-      }
-      const cyNode = cy.getElementById(nodeId);
-      if (cyNode.empty()) {
-        continue;
-      }
-      const absolute = absoluteCenter(model, nodeId);
-      cyNode.position({ x: absolute.x, y: absolute.y });
-      applyFrozenCompoundSize(cyNode, layoutNode.size.w, layoutNode.size.h);
-    }
-  });
-}
-
-/** Naive: set container size via applyFrozenCompoundSize only (children relative unchanged). */
-function applyCyDirectFrozenSync(cy: Core, model: WorkPackageLayoutModel): void {
-  cy.batch(() => {
-    for (const [nodeId, layoutNode] of model.nodes) {
-      const cyNode = cy.getElementById(nodeId);
-      if (cyNode.empty()) {
-        continue;
-      }
-      if (layoutNode.isCompound && layoutNode.size) {
-        applyFrozenCompoundSize(cyNode, layoutNode.size.w, layoutNode.size.h);
-        const absolute = absoluteCenter(model, nodeId);
-        cyNode.position({ x: absolute.x, y: absolute.y });
-      } else if (!layoutNode.isCompound) {
-        const absolute = absoluteCenter(model, nodeId);
-        cyNode.position({ x: absolute.x, y: absolute.y });
-      }
-    }
-  });
-}
-
-export function applyLayoutModelToCy(
-  cy: Core,
-  model: WorkPackageLayoutModel,
-  mode: SyncMode = "model",
-): void {
-  switch (mode) {
-    case "model":
-      applyModelSync(cy, model);
-      break;
-    case "model-plus-frozen-top-left":
-      applyModelPlusFrozenSync(cy, model);
-      break;
-    case "cy-direct-frozen":
-      applyCyDirectFrozenSync(cy, model);
-      break;
-  }
   cy.resize();
 }

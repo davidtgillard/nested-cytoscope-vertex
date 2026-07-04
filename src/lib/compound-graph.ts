@@ -1,10 +1,6 @@
 import type { Core, EventObject } from "cytoscape";
 import cytoscape from "cytoscape";
-import {
-  applyLayoutModelToCy,
-  layoutModelFromCy,
-  type SyncMode,
-} from "./cytoscape-sync";
+import { applyLayoutModelToCy, layoutModelFromCy } from "./cytoscape-sync";
 import {
   CYTOSCAPE_STYLESHEET,
   CHILD_EDGE_CLEARANCE_PX,
@@ -25,7 +21,6 @@ import {
   compoundAbsolutePosition,
   compoundSizeForContent,
   childrenFitBoxAbsoluteFromCy,
-  measureAndPinCompound,
   snapshotGraphState,
   syncLeafFootprintsFromCy,
   type GraphSnapshot,
@@ -43,8 +38,6 @@ import {
   type ResizeCorner,
   type WorkPackageLayoutModel,
 } from "./layout-model";
-
-export type Scenario = "measured" | "preset-sized";
 
 export interface ChildDragVisual {
   renderedX: number;
@@ -66,11 +59,7 @@ export interface ParentDragVisual {
    * Current zoom relative to the zoom Cytoscape's initial `fit: true` layout landed on
    * (1 = unchanged since first render), so the DOM title overlay can shrink/grow as the
    * user actually zooms in or out while leaving `.compound-parent-label { font-size: ... }`
-   * in App.css as the authoritative base size. Using the raw absolute `cy.zoom()` instead
-   * would be wrong here:
-   * `fit: true` can land anywhere far from 1 depending on how much screen space the
-   * graph's model-unit size fills, which would make the title huge or tiny from the very
-   * first frame rather than only in response to the user's own zoom gestures.
+   * in App.css as the authoritative base size.
    */
   zoomScale: number;
 }
@@ -82,26 +71,31 @@ export interface RenderedBoxRect {
   height: number;
 }
 
-const PRESET_LAYOUT = {
-  parent: { x: 0, y: 0, w: 420, h: 280 },
-  child: { x: 0, y: 0 },
-} as const;
+export interface GraphChildVertexSpec {
+  id: string;
+  label: string;
+  color: string;
+  x?: number;
+  y?: number;
+}
 
 /** Leaf node owned exclusively by its compound parent. */
-export class GraphChild {
+export class GraphChildVertex {
   private constructor(
     readonly id: string,
     readonly label: string,
     readonly color: string,
-    private readonly parent: GraphParent,
+    private readonly preset: { x: number; y: number },
   ) {}
 
-  static attach(parent: GraphParent, spec: { id: string; label: string; color: string }): GraphChild {
-    return new GraphChild(spec.id, spec.label, spec.color, parent);
-  }
-
-  get layoutInput(): LayoutNodeInput {
-    return { id: this.id, parent: this.parent.id };
+  /** Factory for GraphParentVertex only (same module). */
+  static attach(spec: GraphChildVertexSpec): GraphChildVertex {
+    return new GraphChildVertex(
+      spec.id,
+      spec.label,
+      spec.color,
+      { x: spec.x ?? 0, y: spec.y ?? 0 },
+    );
   }
 
   toElementDefinition(): cytoscape.ElementDefinition {
@@ -123,7 +117,7 @@ export class GraphChild {
         selectionOutlineWidth: LEAF_SELECTION_OUTLINE_WIDTH,
         selectionOutlineColor: LEAF_SELECTION_OUTLINE_COLOR,
       },
-      position: { ...PRESET_LAYOUT.child },
+      position: { ...this.preset },
     };
   }
 
@@ -133,16 +127,16 @@ export class GraphChild {
   }
 }
 
-/** Compound parent that owns its child and guards all layout mutations. */
-export class GraphParent {
-  readonly child: GraphChild;
+/** Compound parent that owns its children and guards all layout mutations. */
+export class GraphParentVertex {
+  readonly children: readonly GraphChildVertex[];
   private model: WorkPackageLayoutModel | null = null;
-  private syncMode: SyncMode = "model";
   /** Zoom captured right after the initial `fit: true` layout lands; see ParentDragVisual.zoomScale. */
   private referenceZoom = 1;
   private childDragActive = false;
   private childDragSession:
     | {
+        childId: string;
         startModel: WorkPackageLayoutModel;
         parentAbsolute: { x: number; y: number };
         startChildAbsolute: { x: number; y: number };
@@ -156,30 +150,33 @@ export class GraphParent {
     readonly id: string,
     readonly label: string,
     readonly color: string,
-    childSpec: { id: string; label: string; color: string },
+    childSpecs: GraphChildVertexSpec[],
   ) {
-    this.child = GraphChild.attach(this, childSpec);
+    this.children = childSpecs.map((spec) => GraphChildVertex.attach(spec));
   }
 
   static create(spec: {
     id: string;
     label: string;
     color: string;
-    child: { id: string; label: string; color: string };
-  }): GraphParent {
-    return new GraphParent(spec.id, spec.label, spec.color, spec.child);
+    children: GraphChildVertexSpec[];
+  }): GraphParentVertex {
+    return new GraphParentVertex(spec.id, spec.label, spec.color, spec.children);
+  }
+
+  getChild(id: string): GraphChildVertex | undefined {
+    return this.children.find((child) => child.id === id);
   }
 
   get layoutInputs(): LayoutNodeInput[] {
-    return [{ id: this.id, isCompound: true }, this.child.layoutInput];
+    return [
+      { id: this.id, isCompound: true },
+      ...this.children.map((child) => ({ id: child.id, parent: this.id })),
+    ];
   }
 
   get childIds(): string[] {
-    return [this.child.id];
-  }
-
-  setSyncMode(mode: SyncMode): void {
-    this.syncMode = mode;
+    return this.children.map((child) => child.id);
   }
 
   getModel(): WorkPackageLayoutModel | null {
@@ -210,15 +207,16 @@ export class GraphParent {
           center: model.nodes.get(this.id)?.center,
           size: model.nodes.get(this.id)?.size,
         },
-        childAbs: this.child.absoluteCenter(model),
+        childrenAbs: Object.fromEntries(
+          this.childIds.map((childId) => [childId, absoluteCenter(model, childId)]),
+        ),
       },
       null,
       2,
     );
   }
 
-  buildElements(scenario: Scenario): cytoscape.ElementDefinition[] {
-    const preset = scenario === "preset-sized" ? PRESET_LAYOUT.parent : undefined;
+  buildElements(): cytoscape.ElementDefinition[] {
     return [
       {
         data: {
@@ -226,20 +224,16 @@ export class GraphParent {
           label: this.label,
           kind: "container",
           color: this.color,
-          ...(preset ? { compoundWidth: preset.w, compoundHeight: preset.h } : {}),
         },
-        position: { x: preset?.x ?? 0, y: preset?.y ?? 0 },
+        position: { x: 0, y: 0 },
       },
-      this.child.toElementDefinition(),
+      ...this.children.map((child) => child.toElementDefinition()),
     ];
   }
 
-  /** Initial Cytoscape setup: measure (if needed), then snapshot the authoritative model. */
-  initializeFromCy(cy: Core, scenario: Scenario, centerContainerOnChild: boolean): GraphSnapshot {
-    if (scenario === "measured") {
-      this.measureLikeBellman(cy, centerContainerOnChild);
-    }
-
+  /** Initial Cytoscape setup: measure, then snapshot the authoritative model. */
+  initializeFromCy(cy: Core): GraphSnapshot {
+    this.measureFromCy(cy);
     this.syncModelFromCy(cy);
     this.enableDirectDragging(cy);
     this.configureDetachedChildDrag(cy);
@@ -282,11 +276,23 @@ export class GraphParent {
       return this.snapshot(cy);
     }
 
+    const session = this.childDragSession;
     const parent = this.model.nodes.get(this.id);
-    const child = this.model.nodes.get(this.child.id);
+    const child = session ? this.model.nodes.get(session.childId) : undefined;
     const box = compositeOuterBox(this.model, this.id);
-    if (!parent?.size || !child || !box) {
+    if (!session || !parent?.size || !child || !box) {
       return this.snapshot(cy);
+    }
+
+    const children: GraphSnapshot["children"] = {};
+    for (const childId of this.childIds) {
+      const childNode = this.model.nodes.get(childId);
+      if (childNode) {
+        children[childId] = {
+          absolute: absoluteCenter(this.model, childId),
+          relative: { ...childNode.center },
+        };
+      }
     }
 
     return {
@@ -297,46 +303,30 @@ export class GraphParent {
         h: parent.size.h,
         box,
       },
-      children: {
-        [this.child.id]: {
-          absolute: absoluteCenter(this.model, this.child.id),
-          relative: { ...child.center },
-        },
-      },
+      children,
     };
   }
 
-  /**
-   * The ghost always renders with the "selected" ring while a drag is active: our
-   * detached-drag gesture (window pointermove/up listeners, see App.tsx) intercepts the
-   * interaction before Cytoscape's own tap/select machinery sees a completed short click,
-   * so `cyChild.selected()` never flips true mid-drag even though the gesture is a real
-   * grab. The ring is therefore a "currently being dragged" indicator, not a mirror of
-   * Cytoscape's selection state - it appears for the whole gesture and disappears the
-   * instant the ghost is torn down in finishChildDrag.
-   */
   childDragVisual(cy: Core): ChildDragVisual | null {
     const session = this.childDragSession;
     if (!this.childDragActive || !this.model || !session) {
       return null;
     }
-    const childAbsolute = absoluteCenter(this.model, this.child.id);
+    const childVertex = this.getChild(session.childId);
+    if (!childVertex) {
+      return null;
+    }
+    const childAbsolute = absoluteCenter(this.model, session.childId);
     return {
       renderedX: childAbsolute.x * cy.zoom() + cy.pan().x + session.renderedOffset.x,
       renderedY: childAbsolute.y * cy.zoom() + cy.pan().y + session.renderedOffset.y,
       zoom: cy.zoom(),
       zoomScale: cy.zoom() / this.referenceZoom,
-      label: this.child.label,
-      color: this.child.color,
+      label: childVertex.label,
+      color: childVertex.color,
     };
   }
 
-  /**
-   * The visible parent border is always derived live from the model plus the current
-   * pan/zoom, so it tracks zoom/pan exactly like Cytoscape's own rendering does. The
-   * model's parent center/size do not change while a child is being dragged, so this
-   * naturally stays fixed in place during the gesture without needing a frozen snapshot.
-   */
   parentDragVisual(cy: Core): ParentDragVisual | null {
     const parent = cy.getElementById(this.id);
     if (parent.empty()) {
@@ -354,7 +344,6 @@ export class GraphParent {
     };
   }
 
-  /** Orange debug overlay: tight union of children's live rendered fit boxes. */
   minResizeVisual(cy: Core): RenderedBoxRect | null {
     const model = this.model;
     if (!model) {
@@ -376,7 +365,6 @@ export class GraphParent {
     syncLeafFootprintsFromCy(cy, model, this.id);
   }
 
-  /** Snapshot child fit + which edges are still loose; frozen for one resize gesture. */
   computeResizeChildConstraints(cy: Core): ResizeChildConstraints {
     const model = this.ensureModelFromCy(cy);
     syncLeafFootprintsFromCy(cy, model, this.id);
@@ -402,7 +390,6 @@ export class GraphParent {
     };
   }
 
-  /** Resize the compound from a corner drag in model coordinates. */
   resizeFromCorner(
     corner: ResizeCorner,
     dxModel: number,
@@ -417,128 +404,80 @@ export class GraphParent {
     if (!this.model) {
       return;
     }
-    applyLayoutModelToCy(cy, this.model, this.syncMode);
+    applyLayoutModelToCy(cy, this.model);
     this.pinParentToModel(cy);
     this.restoreChildVisibility(cy);
     this.enableDirectDragging(cy);
     this.configureDetachedChildDrag(cy);
-  }
-
-  /**
-   * Drive child dragging from a dedicated drag session rather than Cytoscape's transient
-   * compound coordinates. During the gesture we only update the in-memory model; Cytoscape
-   * is updated once at the end of the drag.
-   */
-  syncChildDragByDelta(cy: Core, delta: { x: number; y: number }): void {
-    const session = this.childDragSession;
-    if (!session || !this.childDragActive) {
-      return;
-    }
-
-    const nextModel = moveChild(session.startModel, this.child.id, {
-      x: session.startChildAbsolute.x + delta.x - session.parentAbsolute.x,
-      y: session.startChildAbsolute.y + delta.y - session.parentAbsolute.y,
-    });
-    this.model = nextModel;
-    this.pinParentToModel(cy);
   }
 
   isChildDragInProgress(): boolean {
     return this.childDragActive;
   }
 
-  beginChildDrag(cy: Core): void {
-    const model = this.ensureModelFromCy(cy);
-    syncLeafFootprintsFromCy(cy, model, this.id);
-    const cyChild = cy.getElementById(this.child.id);
-    if (cyChild.empty()) {
-      return;
-    }
+  attachChildDragHandlers(
+    cy: Core,
+    callbacks: {
+      onStart?: (childId: string, snap: GraphSnapshot) => void;
+      onMove?: () => void;
+      onEnd?: () => void;
+    },
+  ): void {
+    const childIdSet = new Set(this.childIds);
+    let dragCleanup: (() => void) | null = null;
 
-    const childAbsolute = compoundAbsolutePosition(cyChild);
-    const renderedCenter = cyChild.renderedPosition();
-    const pan = cy.pan();
-    const zoom = cy.zoom();
-    const parent = cy.getElementById(this.id);
-    if (parent.empty()) {
-      return;
-    }
-    this.childDragActive = true;
-    this.childDragSession = {
-      startModel: cloneLayoutModel(model),
-      parentAbsolute: absoluteCenter(model, this.id),
-      startChildAbsolute: childAbsolute,
-      renderedOffset: {
-        x: renderedCenter.x - (childAbsolute.x * zoom + pan.x),
-        y: renderedCenter.y - (childAbsolute.y * zoom + pan.y),
-      },
-      previousAutoungrabify: cy.autoungrabify(),
-      previousUserPanningEnabled: cy.userPanningEnabled(),
+    const stopChildDrag = () => {
+      this.finishChildDrag(cy);
+      dragCleanup?.();
+      dragCleanup = null;
+      callbacks.onEnd?.();
     };
 
-    cy.autoungrabify(true);
-    cy.userPanningEnabled(false);
-    cyChild.style("opacity", 0);
-    cyChild.style("events", "no");
-    this.pinParentToModel(cy);
-  }
+    const onChildDragStart = (event: EventObject) => {
+      const childId = event.target.id();
+      if (!childIdSet.has(childId) || this.childDragActive) {
+        return;
+      }
 
-  /** Commit the dragged child position into the model and sync once. */
-  finishChildDrag(cy: Core): void {
-    const model = this.model;
-    const session = this.childDragSession;
-    if (session) {
-      cy.autoungrabify(session.previousAutoungrabify);
-      cy.userPanningEnabled(session.previousUserPanningEnabled);
-    }
-    if (!model) {
-      this.restoreChildVisibility(cy);
-      this.enableDirectDragging(cy);
-      this.configureDetachedChildDrag(cy);
-      this.childDragActive = false;
-      this.childDragSession = null;
-      return;
-    }
+      const clientPoint = clientPointFromOriginalEvent(event.originalEvent as Event | undefined);
+      if (!clientPoint) {
+        return;
+      }
 
-    applyLayoutModelToCy(cy, model, this.syncMode);
-    this.pinParentToModel(cy);
-    this.restoreChildVisibility(cy);
-    this.enableDirectDragging(cy);
-    this.configureDetachedChildDrag(cy);
-    this.childDragActive = false;
-    this.childDragSession = null;
-  }
+      const originalEvent = event.originalEvent as Event | undefined;
+      originalEvent?.preventDefault?.();
+      originalEvent?.stopPropagation?.();
 
-  /**
-   * Parent dragging is allowed to update Cytoscape directly because the visual behavior
-   * already feels correct. We mirror the dragged center back into the model (so the debug
-   * panel stays in sync), then push the child's recomputed absolute position back into
-   * Cytoscape. The child has no real `parent` relationship in Cytoscape's own graph (see
-   * GraphChild.toElementDefinition), so Cytoscape never drags it along on its own -
-   * without this step the child would stay put while the parent's (overlay-rendered)
-   * border moves out from under it.
-   */
-  syncParentDragFromCy(cy: Core): void {
-    const model = this.ensureModelFromCy(cy);
-    const cyParent = cy.getElementById(this.id);
-    if (cyParent.empty()) {
-      return;
-    }
-    this.model = moveComposite(model, this.id, cyParent.position());
-    this.applyChildPositionFromModel(cy);
-  }
+      dragCleanup?.();
+      dragCleanup = null;
 
-  /** Push the child's model-derived absolute position into its real Cytoscape node. */
-  private applyChildPositionFromModel(cy: Core): void {
-    const model = this.model;
-    if (!model) {
-      return;
-    }
-    const cyChild = cy.getElementById(this.child.id);
-    if (cyChild.empty()) {
-      return;
-    }
-    cyChild.position(absoluteCenter(model, this.child.id));
+      callbacks.onStart?.(childId, this.snapshot(cy));
+      this.beginChildDrag(cy, childId);
+
+      const startClientPoint = clientPoint;
+
+      const onWindowMove = (domEvent: MouseEvent | PointerEvent | TouchEvent) => {
+        const nextClientPoint = clientPointFromDomEvent(domEvent);
+        if (!nextClientPoint) {
+          return;
+        }
+        domEvent.preventDefault();
+        this.syncChildDragByDelta(cy, childId, {
+          x: (nextClientPoint.clientX - startClientPoint.clientX) / cy.zoom(),
+          y: (nextClientPoint.clientY - startClientPoint.clientY) / cy.zoom(),
+        });
+        callbacks.onMove?.();
+      };
+
+      const onWindowUp = (domEvent: MouseEvent | PointerEvent | TouchEvent) => {
+        domEvent.preventDefault();
+        stopChildDrag();
+      };
+
+      dragCleanup = wireDetachedDragListeners(originalEvent, onWindowMove, onWindowUp);
+    };
+
+    cy.on("tapstart", "node[kind = 'leaf']", onChildDragStart);
   }
 
   attachParentDragHandlers(
@@ -580,27 +519,148 @@ export class GraphParent {
     cy.on("free", `node#${this.id}`, onFree);
   }
 
-  private measureLikeBellman(cy: Core, centerContainerOnChild: boolean): void {
+  private syncChildDragByDelta(
+    cy: Core,
+    childId: string,
+    delta: { x: number; y: number },
+  ): void {
+    const session = this.childDragSession;
+    if (!session || !this.childDragActive || session.childId !== childId) {
+      return;
+    }
+
+    const nextModel = moveChild(session.startModel, childId, {
+      x: session.startChildAbsolute.x + delta.x - session.parentAbsolute.x,
+      y: session.startChildAbsolute.y + delta.y - session.parentAbsolute.y,
+    });
+    this.model = nextModel;
+    this.pinParentToModel(cy);
+  }
+
+  private beginChildDrag(cy: Core, childId: string): void {
+    if (this.childDragActive) {
+      return;
+    }
+
+    const model = this.ensureModelFromCy(cy);
+    syncLeafFootprintsFromCy(cy, model, this.id);
+    const cyChild = cy.getElementById(childId);
+    if (cyChild.empty()) {
+      return;
+    }
+
+    const childAbsolute = compoundAbsolutePosition(cyChild);
+    const renderedCenter = cyChild.renderedPosition();
+    const pan = cy.pan();
+    const zoom = cy.zoom();
+    const parent = cy.getElementById(this.id);
+    if (parent.empty()) {
+      return;
+    }
+    this.childDragActive = true;
+    this.childDragSession = {
+      childId,
+      startModel: cloneLayoutModel(model),
+      parentAbsolute: absoluteCenter(model, this.id),
+      startChildAbsolute: childAbsolute,
+      renderedOffset: {
+        x: renderedCenter.x - (childAbsolute.x * zoom + pan.x),
+        y: renderedCenter.y - (childAbsolute.y * zoom + pan.y),
+      },
+      previousAutoungrabify: cy.autoungrabify(),
+      previousUserPanningEnabled: cy.userPanningEnabled(),
+    };
+
+    cy.autoungrabify(true);
+    cy.userPanningEnabled(false);
+    cyChild.style("opacity", 0);
+    cyChild.style("events", "no");
+    this.pinParentToModel(cy);
+  }
+
+  private finishChildDrag(cy: Core): void {
+    const model = this.model;
+    const session = this.childDragSession;
+    if (session) {
+      cy.autoungrabify(session.previousAutoungrabify);
+      cy.userPanningEnabled(session.previousUserPanningEnabled);
+    }
+    if (!model) {
+      this.restoreChildVisibility(cy);
+      this.enableDirectDragging(cy);
+      this.configureDetachedChildDrag(cy);
+      this.childDragActive = false;
+      this.childDragSession = null;
+      return;
+    }
+
+    applyLayoutModelToCy(cy, model);
+    this.pinParentToModel(cy);
+    this.restoreChildVisibility(cy);
+    this.enableDirectDragging(cy);
+    this.configureDetachedChildDrag(cy);
+    this.childDragActive = false;
+    this.childDragSession = null;
+  }
+
+  private syncParentDragFromCy(cy: Core): void {
+    const model = this.ensureModelFromCy(cy);
+    const cyParent = cy.getElementById(this.id);
+    if (cyParent.empty()) {
+      return;
+    }
+    this.model = moveComposite(model, this.id, cyParent.position());
+    this.applyChildrenPositionsFromModel(cy);
+  }
+
+  private applyChildrenPositionsFromModel(cy: Core): void {
+    const model = this.model;
+    if (!model) {
+      return;
+    }
+    for (const childId of this.childIds) {
+      const cyChild = cy.getElementById(childId);
+      if (cyChild.empty()) {
+        continue;
+      }
+      cyChild.position(absoluteCenter(model, childId));
+    }
+  }
+
+  private measureFromCy(cy: Core): void {
     cy.batch(() => {
       const parent = cy.getElementById(this.id);
-      const child = cy.getElementById(this.child.id);
-      if (parent.empty() || child.empty()) {
-        return;
-      }
-      if (parent.data("compoundWidth") !== undefined) {
+      if (parent.empty() || parent.data("compoundWidth") !== undefined) {
         return;
       }
 
-      const box = child.boundingBox({ includeLabels: true, includeOverlays: false });
-      const fit = compoundSizeForContent({ x1: box.x1, y1: box.y1, x2: box.x2, y2: box.y2 });
+      let x1 = Infinity;
+      let y1 = Infinity;
+      let x2 = -Infinity;
+      let y2 = -Infinity;
+      let hasChild = false;
+      for (const childId of this.childIds) {
+        const child = cy.getElementById(childId);
+        if (child.empty()) {
+          continue;
+        }
+        hasChild = true;
+        const box = child.boundingBox({ includeLabels: true, includeOverlays: false });
+        x1 = Math.min(x1, box.x1);
+        y1 = Math.min(y1, box.y1);
+        x2 = Math.max(x2, box.x2);
+        y2 = Math.max(y2, box.y2);
+      }
+      if (!hasChild) {
+        return;
+      }
+
+      const fit = compoundSizeForContent({ x1, y1, x2, y2 });
       const w = fit.w + INITIAL_COMPOUND_SLACK;
       const h = fit.h + INITIAL_COMPOUND_SLACK;
-      if (centerContainerOnChild) {
-        measureAndPinCompound(parent, child, w, h);
-      } else {
-        parent.data("compoundWidth", w);
-        parent.data("compoundHeight", h);
-      }
+      parent.data("compoundWidth", w);
+      parent.data("compoundHeight", h);
+      parent.position({ x: (x1 + x2) / 2, y: (y1 + y2) / 2 });
     });
   }
 
@@ -614,26 +674,23 @@ export class GraphParent {
   }
 
   private configureDetachedChildDrag(cy: Core): void {
-    const child = cy.getElementById(this.child.id);
-    if (child.empty()) {
-      return;
+    for (const childId of this.childIds) {
+      const child = cy.getElementById(childId);
+      if (!child.empty()) {
+        child.ungrabify();
+      }
     }
-    child.ungrabify();
   }
 
   private restoreChildVisibility(cy: Core): void {
-    const child = cy.getElementById(this.child.id);
-    if (child.empty()) {
-      return;
+    for (const childId of this.childIds) {
+      const child = cy.getElementById(childId);
+      if (!child.empty()) {
+        child.removeStyle();
+      }
     }
-    child.removeStyle();
   }
 
-  /**
-   * Keeps the (invisible) real Cytoscape container node in sync with the model's
-   * fixed center/size. The container is a plain node with no real Cytoscape
-   * children, so this can never have the side effect of dragging the child along.
-   */
   private pinParentToModel(cy: Core): void {
     const model = this.model;
     if (!model) {
@@ -689,26 +746,157 @@ function renderedBoxRect(
   };
 }
 
-/** Demo graph: wp-invoicing compound containing wp-pdf-export. */
-export const DEMO_COMPOUND = GraphParent.create({
+function clientPointFromDomEvent(
+  event: MouseEvent | PointerEvent | TouchEvent,
+): { clientX: number; clientY: number } | null {
+  if ("clientX" in event && "clientY" in event) {
+    return { clientX: event.clientX, clientY: event.clientY };
+  }
+  const touch = event.touches[0] ?? event.changedTouches[0];
+  if (!touch) {
+    return null;
+  }
+  return { clientX: touch.clientX, clientY: touch.clientY };
+}
+
+function clientPointFromOriginalEvent(
+  originalEvent: Event | undefined,
+): { clientX: number; clientY: number } | null {
+  if (!originalEvent) {
+    return null;
+  }
+  if (
+    originalEvent instanceof MouseEvent ||
+    originalEvent instanceof PointerEvent ||
+    originalEvent instanceof TouchEvent
+  ) {
+    return clientPointFromDomEvent(originalEvent);
+  }
+  return null;
+}
+
+function wireDetachedDragListeners(
+  originalEvent: Event | undefined,
+  onMove: (event: MouseEvent | PointerEvent | TouchEvent) => void,
+  onUp: (event: MouseEvent | PointerEvent | TouchEvent) => void,
+): () => void {
+  const pointerStartEvent = originalEvent instanceof PointerEvent ? originalEvent : null;
+  let active = true;
+  const pointerTarget =
+    pointerStartEvent && pointerStartEvent.target instanceof Element
+      ? pointerStartEvent.target
+      : null;
+
+  if (pointerStartEvent && pointerTarget && "setPointerCapture" in pointerTarget) {
+    try {
+      pointerTarget.setPointerCapture(pointerStartEvent.pointerId);
+    } catch {
+      // Ignore capture failures; the window listeners below are the real fallback.
+    }
+  }
+
+  const onPointerMove = (event: PointerEvent) => {
+    if (!active) {
+      return;
+    }
+    if (pointerStartEvent && event.pointerId !== pointerStartEvent.pointerId) {
+      return;
+    }
+    onMove(event);
+  };
+  const onPointerUp = (event: PointerEvent) => {
+    if (!active) {
+      return;
+    }
+    if (pointerStartEvent && event.pointerId !== pointerStartEvent.pointerId) {
+      return;
+    }
+    active = false;
+    onUp(event);
+  };
+  const onMouseMove = (event: MouseEvent) => {
+    if (!active) {
+      return;
+    }
+    onMove(event);
+  };
+  const onMouseUp = (event: MouseEvent) => {
+    if (!active) {
+      return;
+    }
+    active = false;
+    onUp(event);
+  };
+  const onTouchMove = (event: TouchEvent) => {
+    if (!active) {
+      return;
+    }
+    onMove(event);
+  };
+  const onTouchUp = (event: TouchEvent) => {
+    if (!active) {
+      return;
+    }
+    active = false;
+    onUp(event);
+  };
+
+  window.addEventListener("pointermove", onPointerMove, true);
+  window.addEventListener("pointerup", onPointerUp, true);
+  window.addEventListener("pointercancel", onPointerUp, true);
+  window.addEventListener("mousemove", onMouseMove, true);
+  window.addEventListener("mouseup", onMouseUp, true);
+  window.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+  window.addEventListener("touchend", onTouchUp, { capture: true, passive: false });
+  window.addEventListener("touchcancel", onTouchUp, { capture: true, passive: false });
+  return () => {
+    active = false;
+    window.removeEventListener("pointermove", onPointerMove, true);
+    window.removeEventListener("pointerup", onPointerUp, true);
+    window.removeEventListener("pointercancel", onPointerUp, true);
+    window.removeEventListener("mousemove", onMouseMove, true);
+    window.removeEventListener("mouseup", onMouseUp, true);
+    window.removeEventListener("touchmove", onTouchMove, true);
+    window.removeEventListener("touchend", onTouchUp, true);
+    window.removeEventListener("touchcancel", onTouchUp, true);
+    if (pointerTarget && pointerStartEvent && "releasePointerCapture" in pointerTarget) {
+      try {
+        pointerTarget.releasePointerCapture(pointerStartEvent.pointerId);
+      } catch {
+        // Ignore release failures during cleanup.
+      }
+    }
+  };
+}
+
+/** Demo graph: wp-invoicing compound containing two export children. */
+export const DEMO_COMPOUND = GraphParentVertex.create({
   id: "wp-invoicing",
   label: "wp-invoicing",
   color: "#64748b",
-  child: {
-    id: "wp-pdf-export",
-    label: "wp-pdf-export",
-    color: "#94a3b8",
-  },
+  children: [
+    {
+      id: "wp-pdf-export",
+      label: "wp-pdf-export",
+      color: "#94a3b8",
+      x: -60,
+      y: 0,
+    },
+    {
+      id: "wp-email-export",
+      label: "wp-email-export",
+      color: "#a8b4c4",
+      x: 60,
+      y: 0,
+    },
+  ],
 });
 
-export function createDemoCy(
-  container: HTMLElement,
-  scenario: Scenario,
-): Core {
+export function createDemoCy(container: HTMLElement): Core {
   return cytoscape({
     container,
     style: CYTOSCAPE_STYLESHEET,
-    elements: DEMO_COMPOUND.buildElements(scenario),
+    elements: DEMO_COMPOUND.buildElements(),
     layout: { name: "preset", fit: true, padding: 40 },
     wheelSensitivity: 0.2,
   });
