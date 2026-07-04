@@ -11,6 +11,14 @@ export const COMPOUND_MIN_WIDTH = 80;
 export const COMPOUND_MIN_HEIGHT = 80;
 
 /**
+ * Leaf node shape diameter and label gap, shared with the child-drag DOM ghost
+ * (see App.tsx) so the ghost's label sits at the same offset as Cytoscape's own
+ * `text-valign: bottom` + `text-margin-y` rendering.
+ */
+export const LEAF_NODE_DIAMETER = 36;
+export const LEAF_LABEL_MARGIN_Y = 6;
+
+/**
  * The "container" node is NOT a real Cytoscape compound parent (it has no Cytoscape
  * children). Cytoscape's compound-bounds system unavoidably re-anchors a compound's
  * box to wherever its child currently sits (that's how `min-width-bias-*` works), so
@@ -36,12 +44,12 @@ export const CYTOSCAPE_STYLESHEET: StylesheetStyle[] = [
     style: {
       "text-valign": "bottom",
       "text-halign": "center",
-      "text-margin-y": 6,
+      "text-margin-y": LEAF_LABEL_MARGIN_Y,
       "text-wrap": "wrap",
       "text-max-width": "120px",
       "background-color": "data(color)",
-      width: 36,
-      height: 36,
+      width: LEAF_NODE_DIAMETER,
+      height: LEAF_NODE_DIAMETER,
       shape: "ellipse",
       "z-index": 10,
     },

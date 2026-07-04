@@ -34,6 +34,7 @@ export interface ChildDragVisual {
   zoom: number;
   label: string;
   color: string;
+  selected: boolean;
 }
 
 export interface ParentDragVisual {
@@ -253,6 +254,7 @@ export class GraphParent {
       zoom: cy.zoom(),
       label: this.child.label,
       color: this.child.color,
+      selected: cy.getElementById(this.child.id).selected(),
     };
   }
 

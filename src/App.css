@@ -113,6 +113,7 @@ body {
   height: 0;
 }
 
+/* width/height must match LEAF_NODE_DIAMETER in cytoscape-theme.ts */
 .child-drag-node {
   position: absolute;
   left: 0;
@@ -123,10 +124,19 @@ body {
   transform-origin: center center;
 }
 
+/* Mirrors node[kind = 'leaf']:selected in cytoscape-theme.ts (border-width 3, #38bdf8). */
+.child-drag-node.is-selected {
+  box-shadow: 0 0 0 3px #38bdf8;
+}
+
 .child-drag-label {
   position: absolute;
   left: 0;
+  /* Match Cytoscape's default node font/line-height exactly (no half-leading), so the
+     label sits at the same pixel offset as the real canvas-rendered label. */
+  font-family: "Helvetica Neue", Helvetica, sans-serif;
   font-size: 11px;
+  line-height: 1;
   color: #e2e8f0;
   transform-origin: top center;
   text-shadow:

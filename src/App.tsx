@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { type SyncMode } from "./lib/cytoscape-sync";
+import { LEAF_LABEL_MARGIN_Y, LEAF_NODE_DIAMETER } from "./lib/cytoscape-theme";
 import { snapshotDelta, type GraphSnapshot } from "./lib/cytoscape-utils";
 import {
   type ChildDragVisual,
@@ -495,7 +496,7 @@ export function App() {
                 }}
               >
                 <div
-                  className="child-drag-node"
+                  className={`child-drag-node${childDragVisual.selected ? " is-selected" : ""}`}
                   style={{
                     backgroundColor: childDragVisual.color,
                     transform: `translate(-50%, -50%) scale(${childDragVisual.zoom})`,
@@ -504,7 +505,7 @@ export function App() {
                 <div
                   className="child-drag-label"
                   style={{
-                    top: `${childDragVisual.zoom * 30}px`,
+                    top: `${childDragVisual.zoom * (LEAF_NODE_DIAMETER / 2 + LEAF_LABEL_MARGIN_Y)}px`,
                     transform: `translateX(-50%) scale(${Math.max(1, childDragVisual.zoom * 0.95)})`,
                   }}
                 >
