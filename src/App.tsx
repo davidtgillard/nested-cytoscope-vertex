@@ -28,6 +28,7 @@ import {
   createDemoCy,
   DEMO_COMPOUND,
   type ParentDragVisual,
+  type RenderedBoxRect,
   type Scenario,
 } from "./lib/compound-graph";
 import { type ResizeCorner } from "./lib/layout-model";
@@ -288,6 +289,7 @@ export function App() {
   const [modelSnapshot, setModelSnapshot] = useState<string>("");
   const [childDragVisual, setChildDragVisual] = useState<ChildDragVisual | null>(null);
   const [parentDragVisual, setParentDragVisual] = useState<ParentDragVisual | null>(null);
+  const [minResizeVisual, setMinResizeVisual] = useState<RenderedBoxRect | null>(null);
 
   const compound = compoundRef.current;
 
@@ -298,8 +300,10 @@ export function App() {
     }
     setLiveSnapshot(compound.liveSnapshot(cy));
     setModelSnapshot(compound.modelDebugSnapshot());
+    compound.refreshFootprintsFromCy(cy);
     setChildDragVisual(compound.childDragVisual(cy));
     setParentDragVisual(compound.parentDragVisual(cy));
+    setMinResizeVisual(compound.minResizeVisual(cy));
   }, [compound]);
 
   const recomputeHandles = useCallback(() => {
@@ -709,6 +713,18 @@ export function App() {
                 {parentDragVisual.label}
               </div>
             </div>
+          ) : null}
+          {minResizeVisual ? (
+            <div
+              className="compound-min-resize-debug"
+              style={{
+                left: minResizeVisual.left,
+                top: minResizeVisual.top,
+                width: minResizeVisual.width,
+                height: minResizeVisual.height,
+              }}
+              title="Child rendered fit bounds (shape + label)"
+            />
           ) : null}
           {childDragVisual ? (
             <div className="child-drag-layer">

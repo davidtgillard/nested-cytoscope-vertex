@@ -22,8 +22,10 @@ import {
   INITIAL_COMPOUND_SLACK,
   compoundAbsolutePosition,
   compoundSizeForContent,
+  childrenFitBoxAbsoluteFromCy,
   measureAndPinCompound,
   snapshotGraphState,
+  syncLeafFootprintsFromCy,
   type GraphSnapshot,
 } from "./cytoscape-utils";
 import {
@@ -67,6 +69,13 @@ export interface ParentDragVisual {
    * first frame rather than only in response to the user's own zoom gestures.
    */
   zoomScale: number;
+}
+
+export interface RenderedBoxRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
 const PRESET_LAYOUT = {
@@ -341,6 +350,28 @@ export class GraphParent {
     };
   }
 
+  /** Orange debug overlay: tight union of children's live rendered fit boxes. */
+  minResizeVisual(cy: Core): RenderedBoxRect | null {
+    const model = this.model;
+    if (!model) {
+      return null;
+    }
+    syncLeafFootprintsFromCy(cy, model, this.id);
+    const box = childrenFitBoxAbsoluteFromCy(cy, model, this.id);
+    if (!box) {
+      return null;
+    }
+    return renderedBoxRect(cy, box);
+  }
+
+  refreshFootprintsFromCy(cy: Core): void {
+    const model = this.model;
+    if (!model) {
+      return;
+    }
+    syncLeafFootprintsFromCy(cy, model, this.id);
+  }
+
   /** Resize the compound from a corner drag in model coordinates. */
   resizeFromCorner(corner: ResizeCorner, dxModel: number, dyModel: number, startModel: WorkPackageLayoutModel): void {
     this.model = resizeComposite(startModel, this.id, corner, dxModel, dyModel);
@@ -598,20 +629,27 @@ export class GraphParent {
     if (!box) {
       return null;
     }
-    const pan = cy.pan();
-    const zoom = cy.zoom();
-    return {
-      left: box.x1 * zoom + pan.x,
-      top: box.y1 * zoom + pan.y,
-      width: (box.x2 - box.x1) * zoom,
-      height: (box.y2 - box.y1) * zoom,
-    };
+    return renderedBoxRect(cy, box);
   }
 
   private syncModelFromCy(cy: Core): WorkPackageLayoutModel {
     this.model = layoutModelFromCy(cy, this.layoutInputs);
     return this.model;
   }
+}
+
+function renderedBoxRect(
+  cy: Core,
+  box: { x1: number; y1: number; x2: number; y2: number },
+): RenderedBoxRect {
+  const pan = cy.pan();
+  const zoom = cy.zoom();
+  return {
+    left: box.x1 * zoom + pan.x,
+    top: box.y1 * zoom + pan.y,
+    width: (box.x2 - box.x1) * zoom,
+    height: (box.y2 - box.y1) * zoom,
+  };
 }
 
 /** Demo graph: wp-invoicing compound containing wp-pdf-export. */

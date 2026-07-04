@@ -82,6 +82,15 @@ body {
   border-color: #38bdf8;
 }
 
+.compound-min-resize-debug {
+  position: absolute;
+  z-index: 13;
+  border: 2px dashed #f97316;
+  border-radius: 12px;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
 .compound-parent-label {
   position: absolute;
   bottom: 100%;

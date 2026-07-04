@@ -1,5 +1,11 @@
 import type { Core, NodeSingular } from "cytoscape";
 import { COMPOUND_MIN_HEIGHT, COMPOUND_MIN_WIDTH, COMPOUND_PADDING } from "./cytoscape-theme";
+import {
+  absoluteCenter,
+  compositeOuterBox,
+  type WorkPackageLayoutModel,
+} from "./layout-model";
+import type { VisualBox } from "./collision";
 
 export interface Point {
   x: number;
@@ -44,6 +50,87 @@ export function measureLeafFootprint(node: NodeSingular): {
     halfHTop: center.y - shapeBox.y1,
     halfHBottom: fullBox.y2 - center.y,
   };
+}
+
+/** Copy live Cytoscape label/shape metrics into the layout model's leaf footprints. */
+export function syncLeafFootprintsFromCy(
+  cy: Core,
+  model: WorkPackageLayoutModel,
+  parentId: string,
+): void {
+  for (const childId of model.childrenOf.get(parentId) ?? []) {
+    const layoutNode = model.nodes.get(childId);
+    const cyNode = cy.getElementById(childId);
+    if (!layoutNode || layoutNode.isCompound || cyNode.empty()) {
+      continue;
+    }
+    layoutNode.footprint = measureLeafFootprint(cyNode);
+  }
+}
+
+/**
+ * Child fit box using the model's authoritative center and Cytoscape's live rendered
+ * extents. Shifts the bounding box when the model center has diverged from the hidden
+ * Cytoscape node (e.g. mid detached child-drag).
+ */
+export function childFitBoxAbsoluteFromCy(
+  cy: Core,
+  model: WorkPackageLayoutModel,
+  childId: string,
+): VisualBox | null {
+  const layoutNode = model.nodes.get(childId);
+  if (!layoutNode) {
+    return null;
+  }
+  if (layoutNode.isCompound && layoutNode.size) {
+    return compositeOuterBox(model, childId);
+  }
+  const cyNode = cy.getElementById(childId);
+  if (cyNode.empty()) {
+    return null;
+  }
+
+  const boundingBox = cyNode.boundingBox({ includeLabels: true, includeOverlays: false });
+  const modelCenter = absoluteCenter(model, childId);
+  const cyCenter = cyNode.position();
+  const dx = modelCenter.x - cyCenter.x;
+  const dy = modelCenter.y - cyCenter.y;
+  return {
+    x1: boundingBox.x1 + dx,
+    y1: boundingBox.y1 + dy,
+    x2: boundingBox.x2 + dx,
+    y2: boundingBox.y2 + dy,
+  };
+}
+
+export function childrenFitBoxAbsoluteFromCy(
+  cy: Core,
+  model: WorkPackageLayoutModel,
+  compositeId: string,
+): VisualBox | null {
+  const childIds = model.childrenOf.get(compositeId) ?? [];
+  if (childIds.length === 0) {
+    return null;
+  }
+
+  let x1 = Infinity;
+  let y1 = Infinity;
+  let x2 = -Infinity;
+  let y2 = -Infinity;
+  for (const childId of childIds) {
+    const box = childFitBoxAbsoluteFromCy(cy, model, childId);
+    if (!box) {
+      continue;
+    }
+    x1 = Math.min(x1, box.x1);
+    y1 = Math.min(y1, box.y1);
+    x2 = Math.max(x2, box.x2);
+    y2 = Math.max(y2, box.y2);
+  }
+  if (!Number.isFinite(x1)) {
+    return null;
+  }
+  return { x1, y1, x2, y2 };
 }
 
 export function compoundSizeForContent(contentBox: {

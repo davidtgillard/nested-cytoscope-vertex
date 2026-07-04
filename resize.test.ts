@@ -1,10 +1,15 @@
 import cytoscape from "cytoscape";
 import { describe, expect, it } from "vitest";
 import { DEMO_COMPOUND } from "./src/lib/compound-graph";
-import { CYTOSCAPE_STYLESHEET } from "./src/lib/cytoscape-theme";
+import { COMPOUND_PADDING, CYTOSCAPE_STYLESHEET } from "./src/lib/cytoscape-theme";
 import { applyLayoutModelToCy, layoutModelFromCy } from "./src/lib/cytoscape-sync";
 import { compoundAbsolutePosition } from "./src/lib/cytoscape-utils";
-import { buildLayoutModel, resizeComposite } from "./src/lib/layout-model";
+import {
+  buildLayoutModel,
+  compositeOuterBox,
+  NODE_OVERLAP_PADDING,
+  resizeComposite,
+} from "./src/lib/layout-model";
 
 describe("toy nested compound resize", () => {
   it("model sync keeps child absolute position on SE resize", () => {
@@ -157,5 +162,64 @@ describe("toy nested compound resize", () => {
     expect(expectedAbsolute).not.toBeNull();
     expect(during.children["wp-pdf-export"].absolute.x).toBeCloseTo(expectedAbsolute!.x, 3);
     expect(during.children["wp-pdf-export"].absolute.y).toBeCloseTo(expectedAbsolute!.y, 3);
+  });
+
+  it("SE shrink uses reservedEdge clearance matching child drag bounds", () => {
+    const footprint = { halfW: 18, halfHTop: 18, halfHBottom: 26 };
+    const reservedEdge = -2;
+    const inputs = [
+      { id: "parent", isCompound: true },
+      { id: "child", parent: "parent", footprint },
+    ];
+    let model = buildLayoutModel(inputs, {
+      parent: { x: 0, y: 0, w: 200, h: 200 },
+      child: { x: 50, y: 30 },
+    });
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+
+    const childFitRight = 50 + footprint.halfW;
+    const expectedMinRight = childFitRight + reservedEdge;
+    const legacyMinRight = childFitRight + NODE_OVERLAP_PADDING + COMPOUND_PADDING.right;
+
+    model = resizeComposite(model, "parent", "se", -1000, 0);
+    const outer = compositeOuterBox(model, "parent")!;
+
+    expect(outer.x2).toBeCloseTo(expectedMinRight, 3);
+    expect(outer.x2).toBeLessThan(legacyMinRight);
+  });
+
+  it("multi-child resize clamps each edge by the extremal child", () => {
+    const footprint = { halfW: 10, halfHTop: 10, halfHBottom: 10 };
+    const reservedEdge = 0;
+    const inputs = [
+      { id: "parent", isCompound: true },
+      { id: "child-a", parent: "parent", footprint },
+      { id: "child-b", parent: "parent", footprint },
+    ];
+    const layout = {
+      parent: { x: 0, y: 0, w: 400, h: 400 },
+      "child-a": { x: -150, y: -150 },
+      "child-b": { x: 150, y: 150 },
+    };
+
+    let model = buildLayoutModel(inputs, layout);
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+
+    const expectedMinLeft = -150 - footprint.halfW - reservedEdge;
+    const expectedMinTop = -150 - footprint.halfHTop - reservedEdge;
+    const expectedMinRight = 150 + footprint.halfW + reservedEdge;
+    const expectedMinBottom = 150 + footprint.halfHBottom + reservedEdge;
+
+    model = resizeComposite(model, "parent", "nw", 1000, 1000);
+    let outer = compositeOuterBox(model, "parent")!;
+    expect(outer.x1).toBeCloseTo(expectedMinLeft, 3);
+    expect(outer.y1).toBeCloseTo(expectedMinTop, 3);
+
+    model = buildLayoutModel(inputs, layout);
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+    model = resizeComposite(model, "parent", "se", -1000, -1000);
+    outer = compositeOuterBox(model, "parent")!;
+    expect(outer.x2).toBeCloseTo(expectedMinRight, 3);
+    expect(outer.y2).toBeCloseTo(expectedMinBottom, 3);
   });
 });
