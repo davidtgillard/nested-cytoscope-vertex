@@ -67,6 +67,13 @@ export interface LayoutNode {
    * COMPOUND_PADDING.top (see compositeInteriorBox) until a real measurement lands.
    */
   reservedTop?: number;
+  /**
+   * Model-unit equivalent of CHILD_EDGE_CLEARANCE_PX at the current zoom (see
+   * GraphParent.setEdgeClearance), applied to the left/right/bottom interior edges.
+   * Recomputed every render tick because zoom can change at any time; falls back to
+   * COMPOUND_PADDING.left (see compositeInteriorBox) until the first tick lands.
+   */
+  reservedEdge?: number;
 }
 
 function leafFootprint(node: LayoutNode | undefined): LeafFootprint {
@@ -253,12 +260,14 @@ export function compositeInteriorBox(model: WorkPackageLayoutModel, compositeId:
   if (!outer) {
     return null;
   }
-  const topClearance = model.nodes.get(compositeId)?.reservedTop ?? COMPOUND_PADDING.top;
+  const node = model.nodes.get(compositeId);
+  const topClearance = node?.reservedTop ?? COMPOUND_PADDING.top;
+  const edgeClearance = node?.reservedEdge ?? COMPOUND_PADDING.left;
   return {
-    x1: outer.x1 + COMPOUND_PADDING.left,
+    x1: outer.x1 + edgeClearance,
     y1: outer.y1 + topClearance,
-    x2: outer.x2 - COMPOUND_PADDING.right,
-    y2: outer.y2 - COMPOUND_PADDING.bottom,
+    x2: outer.x2 - edgeClearance,
+    y2: outer.y2 - edgeClearance,
   };
 }
 

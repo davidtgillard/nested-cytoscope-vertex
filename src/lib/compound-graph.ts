@@ -148,6 +148,19 @@ export class GraphParent {
     }
   }
 
+  /**
+   * Records how many model units CHILD_EDGE_CLEARANCE_PX currently maps to at the live
+   * zoom level (see App.tsx), so the child's left/right/bottom drag clamp stays a
+   * constant number of screen pixels from the border no matter how far Cytoscape's
+   * `fit: true` layout has zoomed in or out.
+   */
+  setEdgeClearance(modelUnits: number): void {
+    const node = this.model?.nodes.get(this.id);
+    if (node) {
+      node.reservedEdge = modelUnits;
+    }
+  }
+
   modelDebugSnapshot(): string {
     const model = this.model;
     if (!model) {

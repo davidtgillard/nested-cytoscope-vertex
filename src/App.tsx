@@ -8,7 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { type SyncMode } from "./lib/cytoscape-sync";
-import { LEAF_LABEL_MARGIN_Y, LEAF_NODE_DIAMETER } from "./lib/cytoscape-theme";
+import { CHILD_EDGE_CLEARANCE_PX, LEAF_LABEL_MARGIN_Y, LEAF_NODE_DIAMETER } from "./lib/cytoscape-theme";
 import { snapshotDelta, type GraphSnapshot } from "./lib/cytoscape-utils";
 import {
   type ChildDragVisual,
@@ -223,21 +223,30 @@ export function App() {
   }, [compound]);
 
   /**
-   * The parent's title is a DOM overlay with a fixed CSS font-size, so it never scales
-   * with Cytoscape's zoom the way real Cytoscape-rendered geometry does. Measuring its
-   * actual rendered box (instead of assuming a fixed number of model units) and dividing
-   * by the current zoom keeps "how much room the title needs" correct at any zoom level -
-   * mirroring how measureLeafFootprint measures the child instead of guessing.
+   * Both the parent's title and its left/right/bottom edge clearance need to stay a
+   * constant number of *screen pixels*, not model units, so they read correctly no
+   * matter how far Cytoscape's `fit: true` layout has zoomed in or out - the title
+   * because it's a DOM overlay with a fixed CSS font-size that never scales with zoom,
+   * and the edge clearance because CHILD_EDGE_CLEARANCE_PX is authored in pixels so it's
+   * easy to tune independent of zoom. The title is measured from its actual rendered box
+   * (mirroring how measureLeafFootprint measures the child instead of guessing); the
+   * edge clearance has no DOM element to measure, so it's just divided by zoom directly.
    */
-  const refreshTitleClearance = useCallback(() => {
+  const refreshInteriorClearances = useCallback(() => {
     const cy = cyRef.current;
-    const overlayEl = overlayRef.current;
-    const titleEl = titleRef.current;
-    if (!cy || !overlayEl || !titleEl) {
+    if (!cy) {
       return;
     }
     const zoom = cy.zoom();
     if (!(zoom > 0)) {
+      return;
+    }
+
+    compound.setEdgeClearance(CHILD_EDGE_CLEARANCE_PX / zoom);
+
+    const overlayEl = overlayRef.current;
+    const titleEl = titleRef.current;
+    if (!overlayEl || !titleEl) {
       return;
     }
     const overlayRect = overlayEl.getBoundingClientRect();
@@ -248,8 +257,8 @@ export function App() {
   }, [compound]);
 
   useEffect(() => {
-    refreshTitleClearance();
-  }, [parentDragVisual, refreshTitleClearance]);
+    refreshInteriorClearances();
+  }, [parentDragVisual, refreshInteriorClearances]);
 
   useEffect(() => {
     compound.setSyncMode(syncMode);

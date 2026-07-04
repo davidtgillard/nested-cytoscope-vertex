@@ -4,9 +4,11 @@ import type { StylesheetStyle } from "cytoscape";
  * Fixed clearance reserved inside the compound's border, independent of the child's own
  * footprint (see LeafFootprint in layout-model.ts). `top` reserves room for the parent's
  * title (`.compound-parent-label` in App.css: 20px font starting at top:10px, so ~40px
- * clears its full line height); the rest is just a thin cosmetic gutter along the
- * border, since the child's own measured shape/label footprint - not this padding - is
- * what actually keeps its text from crossing the left/right/bottom edges.
+ * clears its full line height) and is only a fallback here - once the title is actually
+ * on screen, `reservedTop` (measured live in App.tsx) overrides it. `right`/`bottom`/
+ * `left` are likewise just the fallback used before the first render tick lands: while
+ * dragging, the live pixel-based clearance in CHILD_EDGE_CLEARANCE_PX (also converted to
+ * model units in App.tsx, see `reservedEdge`) takes over.
  */
 export const COMPOUND_PADDING = {
   top: 40,
@@ -14,6 +16,16 @@ export const COMPOUND_PADDING = {
   bottom: 8,
   left: 8,
 } as const;
+
+/**
+ * How close a child's measured footprint may get to the parent's left/right/bottom
+ * border while being dragged, expressed in real screen pixels rather than model units -
+ * so it stays visually consistent no matter how far Cytoscape's `fit: true` initial
+ * layout ends up zooming (see reservedTop/setTitleClearance for the same reasoning
+ * applied to the title). Tune this directly to make the child hug the edges more or
+ * less tightly.
+ */
+export const CHILD_EDGE_CLEARANCE_PX = -5;
 
 export const COMPOUND_MIN_WIDTH = 80;
 export const COMPOUND_MIN_HEIGHT = 80;
