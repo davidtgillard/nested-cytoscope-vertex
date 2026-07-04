@@ -399,11 +399,8 @@ export function minimumCompositeOuterBox(
     };
   }
 
-  let x1 = childrenBox.x1 - edgeClearance;
-  let y1 = childrenBox.y1 - edgeClearance;
-  let x2 = childrenBox.x2 + edgeClearance;
-  let y2 = childrenBox.y2 + edgeClearance;
-
+  const bounds = parentOuterBoundsFromChildFit(childrenBox, edgeClearance);
+  let { x1, y1, x2, y2 } = bounds;
   const width = x2 - x1;
   const height = y2 - y1;
   if (width < COMPOUND_MIN_WIDTH) {
@@ -418,6 +415,19 @@ export function minimumCompositeOuterBox(
   }
 
   return { x1, y1, x2, y2 };
+}
+
+/** Parent outer bounds that still contain `childrenBox` with `edgeClearance` on every side. */
+export function parentOuterBoundsFromChildFit(
+  childrenBox: VisualBox,
+  edgeClearance: number,
+): VisualBox {
+  return {
+    x1: childrenBox.x1 - edgeClearance,
+    y1: childrenBox.y1 - edgeClearance,
+    x2: childrenBox.x2 + edgeClearance,
+    y2: childrenBox.y2 + edgeClearance,
+  };
 }
 
 export function resizeCompoundBoxFromCorner(
@@ -435,37 +445,46 @@ export function resizeCompoundBoxFromCorner(
   const movesNorth = corner === "nw" || corner === "ne";
   const movesSouth = corner === "sw" || corner === "se";
 
+  const minLeft = childrenBox ? childrenBox.x1 - edgeClearance : null;
+  const maxRight = childrenBox ? childrenBox.x2 + edgeClearance : null;
+  const minTop = childrenBox ? childrenBox.y1 - edgeClearance : null;
+  const maxBottom = childrenBox ? childrenBox.y2 + edgeClearance : null;
+
   if (movesEast) {
     x2 = startBox.x2 + dxModel;
-    const minRight = Math.max(
-      x1 + COMPOUND_MIN_WIDTH,
-      childrenBox ? childrenBox.x2 + edgeClearance : x1 + COMPOUND_MIN_WIDTH,
-    );
-    x2 = Math.max(x2, minRight);
+    x2 = Math.max(x2, maxRight ?? x1 + COMPOUND_MIN_WIDTH);
+  } else if (maxRight !== null && x2 > maxRight) {
+    x2 = maxRight;
   }
+
   if (movesWest) {
     x1 = startBox.x1 + dxModel;
-    const maxLeft = Math.min(
-      x2 - COMPOUND_MIN_WIDTH,
-      childrenBox ? childrenBox.x1 - edgeClearance : x2 - COMPOUND_MIN_WIDTH,
-    );
-    x1 = Math.min(x1, maxLeft);
+    x1 = Math.min(x1, minLeft ?? x2 - COMPOUND_MIN_WIDTH);
+  } else if (minLeft !== null && x1 < minLeft) {
+    x1 = minLeft;
   }
+
   if (movesSouth) {
     y2 = startBox.y2 + dyModel;
-    const minBottom = Math.max(
-      y1 + COMPOUND_MIN_HEIGHT,
-      childrenBox ? childrenBox.y2 + edgeClearance : y1 + COMPOUND_MIN_HEIGHT,
-    );
-    y2 = Math.max(y2, minBottom);
+    y2 = Math.max(y2, maxBottom ?? y1 + COMPOUND_MIN_HEIGHT);
+  } else if (maxBottom !== null && y2 > maxBottom) {
+    y2 = maxBottom;
   }
+
   if (movesNorth) {
     y1 = startBox.y1 + dyModel;
-    const maxTop = Math.min(
-      y2 - COMPOUND_MIN_HEIGHT,
-      childrenBox ? childrenBox.y1 - edgeClearance : y2 - COMPOUND_MIN_HEIGHT,
-    );
-    y1 = Math.min(y1, maxTop);
+    y1 = Math.min(y1, minTop ?? y2 - COMPOUND_MIN_HEIGHT);
+  } else if (minTop !== null && y1 < minTop) {
+    y1 = minTop;
+  }
+
+  if (!childrenBox) {
+    if (x2 - x1 < COMPOUND_MIN_WIDTH) {
+      x2 = x1 + COMPOUND_MIN_WIDTH;
+    }
+    if (y2 - y1 < COMPOUND_MIN_HEIGHT) {
+      y2 = y1 + COMPOUND_MIN_HEIGHT;
+    }
   }
 
   return { x1, y1, x2, y2 };
@@ -594,6 +613,7 @@ export function resizeComposite(
   corner: ResizeCorner,
   dxModel: number,
   dyModel: number,
+  childrenFitBoxOverride?: VisualBox | null,
 ): WorkPackageLayoutModel {
   const next = cloneLayoutModel(model);
   const node = next.nodes.get(compositeId);
@@ -603,7 +623,10 @@ export function resizeComposite(
   }
 
   const edgeClearance = compositeEdgeClearance(next, compositeId);
-  const childrenBox = childrenFitBoxAbsolute(next, compositeId);
+  const childrenBox =
+    childrenFitBoxOverride !== undefined
+      ? childrenFitBoxOverride
+      : childrenFitBoxAbsolute(next, compositeId);
   const proposedOuter = resizeCompoundBoxFromCorner(
     startOuter,
     corner,

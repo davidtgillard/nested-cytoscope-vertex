@@ -555,7 +555,7 @@ export function App() {
 
       const dxModel = (clientX - active.startClientX) / active.zoom;
       const dyModel = (clientY - active.startClientY) / active.zoom;
-      compound.resizeFromCorner(active.corner, dxModel, dyModel, active.startModel);
+      compound.resizeFromCorner(active.corner, dxModel, dyModel, active.startModel, cy);
 
       if (resizeTiming === "live") {
         compound.syncToCy(cy);
@@ -596,6 +596,8 @@ export function App() {
       }
 
       compound.ensureModelFromCy(cy);
+      refreshInteriorClearances();
+      compound.refreshFootprintsFromCy(cy);
 
       event.preventDefault();
       event.stopPropagation();
@@ -613,7 +615,7 @@ export function App() {
         baseline: baselineSnap,
       };
     },
-    [compound],
+    [compound, refreshInteriorClearances],
   );
 
   const deltas = useMemo(() => {

@@ -7,6 +7,7 @@ import {
 } from "./cytoscape-sync";
 import {
   CYTOSCAPE_STYLESHEET,
+  CHILD_EDGE_CLEARANCE_PX,
   LEAF_LABEL_COLOR,
   LEAF_LABEL_FONT_FAMILY,
   LEAF_LABEL_FONT_SIZE,
@@ -373,8 +374,22 @@ export class GraphParent {
   }
 
   /** Resize the compound from a corner drag in model coordinates. */
-  resizeFromCorner(corner: ResizeCorner, dxModel: number, dyModel: number, startModel: WorkPackageLayoutModel): void {
-    this.model = resizeComposite(startModel, this.id, corner, dxModel, dyModel);
+  resizeFromCorner(
+    corner: ResizeCorner,
+    dxModel: number,
+    dyModel: number,
+    startModel: WorkPackageLayoutModel,
+    cy: Core,
+  ): void {
+    syncLeafFootprintsFromCy(cy, startModel, this.id);
+    const startParent = startModel.nodes.get(this.id);
+    const zoom = cy.zoom();
+    if (startParent && zoom > 0) {
+      startParent.reservedEdge = CHILD_EDGE_CLEARANCE_PX / zoom;
+    }
+    const fitModel = this.model ?? startModel;
+    const childrenBox = childrenFitBoxAbsoluteFromCy(cy, fitModel, this.id);
+    this.model = resizeComposite(startModel, this.id, corner, dxModel, dyModel, childrenBox);
   }
 
   syncToCy(cy: Core): void {
@@ -413,6 +428,7 @@ export class GraphParent {
 
   beginChildDrag(cy: Core): void {
     const model = this.ensureModelFromCy(cy);
+    syncLeafFootprintsFromCy(cy, model, this.id);
     const cyChild = cy.getElementById(this.child.id);
     if (cyChild.empty()) {
       return;

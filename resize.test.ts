@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import { DEMO_COMPOUND } from "./src/lib/compound-graph";
 import { COMPOUND_PADDING, CYTOSCAPE_STYLESHEET } from "./src/lib/cytoscape-theme";
 import { applyLayoutModelToCy, layoutModelFromCy } from "./src/lib/cytoscape-sync";
-import { compoundAbsolutePosition } from "./src/lib/cytoscape-utils";
+import { childrenFitBoxAbsoluteFromCy, compoundAbsolutePosition } from "./src/lib/cytoscape-utils";
 import {
   buildLayoutModel,
   compositeOuterBox,
+  parentOuterBoundsFromChildFit,
   NODE_OVERLAP_PADDING,
   resizeComposite,
 } from "./src/lib/layout-model";
@@ -186,6 +187,74 @@ describe("toy nested compound resize", () => {
 
     expect(outer.x2).toBeCloseTo(expectedMinRight, 3);
     expect(outer.x2).toBeLessThan(legacyMinRight);
+  });
+
+  it("SE shrink with live cy child fit box stops at fit plus reservedEdge", () => {
+    const cy = cytoscape({
+      headless: true,
+      style: CYTOSCAPE_STYLESHEET,
+      elements: [
+        {
+          data: { id: "parent", kind: "container", compoundWidth: 240, compoundHeight: 240 },
+          position: { x: 0, y: 0 },
+        },
+        {
+          data: {
+            id: "child",
+            kind: "leaf",
+            label: "child",
+            color: "#94a3b8",
+            nodeWidth: 36,
+            nodeHeight: 36,
+            labelMarginY: 6,
+            labelFontSize: 11,
+          },
+          position: { x: 40, y: 20 },
+        },
+      ],
+    });
+
+    const inputs = [
+      { id: "parent", isCompound: true },
+      { id: "child", parent: "parent" },
+    ];
+    let model = layoutModelFromCy(cy, inputs);
+    const reservedEdge = -2;
+    model.nodes.get("parent")!.reservedEdge = reservedEdge;
+    applyLayoutModelToCy(cy, model, "model");
+
+    const childrenBox = childrenFitBoxAbsoluteFromCy(cy, model, "parent");
+    expect(childrenBox).not.toBeNull();
+
+    model = resizeComposite(model, "parent", "se", -1000, 0, childrenBox);
+    const outer = compositeOuterBox(model, "parent")!;
+
+    expect(outer.x2).toBeCloseTo(childrenBox!.x2 + reservedEdge, 2);
+  });
+
+  it("SE shrink on preset parent tightens all edges to child fit plus clearance", () => {
+    const cy = cytoscape({
+      headless: true,
+      style: CYTOSCAPE_STYLESHEET,
+      elements: DEMO_COMPOUND.buildElements("preset-sized"),
+    });
+
+    DEMO_COMPOUND.initializeFromCy(cy, "preset-sized", true);
+    const reservedEdge = -2;
+    DEMO_COMPOUND.setEdgeClearance(reservedEdge);
+
+    const model = DEMO_COMPOUND.getModel()!;
+    const childrenBox = childrenFitBoxAbsoluteFromCy(cy, model, "wp-invoicing");
+    expect(childrenBox).not.toBeNull();
+
+    const target = parentOuterBoundsFromChildFit(childrenBox!, reservedEdge);
+    const resized = resizeComposite(model, "wp-invoicing", "se", -1000, -1000, childrenBox);
+    const outer = compositeOuterBox(resized, "wp-invoicing")!;
+
+    expect(outer.x1).toBeCloseTo(target.x1, 1);
+    expect(outer.y1).toBeCloseTo(target.y1, 1);
+    expect(outer.x2).toBeCloseTo(target.x2, 1);
+    expect(outer.y2).toBeCloseTo(target.y2, 1);
   });
 
   it("multi-child resize clamps each edge by the extremal child", () => {
