@@ -462,8 +462,8 @@ export class GraphParentVertex {
       dragCleanup?.();
       dragCleanup = null;
 
-      callbacks.onStart?.(childId, this.snapshot(cy));
       this.beginChildDrag(cy, childId);
+      callbacks.onStart?.(childId, this.liveSnapshot(cy));
 
       const startClientPoint = clientPoint;
 

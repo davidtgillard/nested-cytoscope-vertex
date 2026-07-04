@@ -253,9 +253,7 @@ export function App() {
     const onRender = () => {
       syncConfiguredChildVisualStyle(cy);
       recomputeHandles();
-      if (!compound.isChildDragInProgress()) {
-        refreshOverlays();
-      }
+      refreshOverlays();
     };
     cy.on("render zoom pan", onRender);
 
@@ -266,6 +264,9 @@ export function App() {
     cy.on("select unselect", onSelectionChange);
 
     compound.attachChildDragHandlers(cy, {
+      onStart: () => {
+        refreshOverlays();
+      },
       onMove: () => {
         refreshOverlays();
       },
