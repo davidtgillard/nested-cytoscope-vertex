@@ -8,7 +8,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
-  DEFAULT_COMPOUND_GRAPH_THEME,
   leafDomVisualStyle,
   type ChildDragVisual,
   type LeafDomVisualStyle,
@@ -16,7 +15,7 @@ import {
   type ResizeChildConstraints,
   type ResizeCorner,
 } from "@dgillard/nested-cytoscope-vertex";
-import { createDemoCy, DEMO_COMPOUND } from "./demo-graph";
+import { createDemoCy, DEMO_COMPOUND, DEMO_THEME } from "./demo-graph";
 
 const CORNERS: ResizeCorner[] = ["nw", "ne", "sw", "se"];
 const HANDLE_SIZE = 12;
@@ -35,10 +34,20 @@ function readCssLengthValue(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function overlayVisualEqual<T extends object | null>(left: T, right: T): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null) {
+    return false;
+  }
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 interface ChildVisualStyle extends LeafDomVisualStyle {}
 
-const DEFAULT_CHILD_VISUAL_STYLE: ChildVisualStyle = leafDomVisualStyle();
-const THEME = DEFAULT_COMPOUND_GRAPH_THEME;
+const DEFAULT_CHILD_VISUAL_STYLE: ChildVisualStyle = leafDomVisualStyle(DEMO_THEME);
+const THEME = DEMO_THEME;
 
 function readComputedChildVisualStyle(
   labelElement: HTMLElement | null,
@@ -118,8 +127,14 @@ export function App() {
       return;
     }
     compound.refreshFootprintsFromCy(cy);
-    setChildDragVisual(compound.childDragVisual(cy));
-    setParentDragVisual(compound.parentDragVisual(cy));
+    const nextChildDragVisual = compound.childDragVisual(cy);
+    const nextParentDragVisual = compound.parentDragVisual(cy);
+    setChildDragVisual((previous) =>
+      overlayVisualEqual(previous, nextChildDragVisual) ? previous : nextChildDragVisual,
+    );
+    setParentDragVisual((previous) =>
+      overlayVisualEqual(previous, nextParentDragVisual) ? previous : nextParentDragVisual,
+    );
   }, [compound]);
 
   const recomputeHandles = useCallback(() => {
@@ -188,6 +203,7 @@ export function App() {
     }
 
     compound.setEdgeClearance(THEME.childEdgeClearancePx / zoom);
+    compound.setNodeOverlapPadding(THEME.nodeOverlapPadding);
   }, [compound]);
 
   useEffect(() => {
@@ -209,7 +225,11 @@ export function App() {
       if (!syncConfiguredChildVisualStyle(cy)) {
         return;
       }
-      setGraphKey((value) => value + 1);
+      compound.refreshFootprintsFromCy(cy);
+      compound.ensureModelFromCy(cy);
+      refreshInteriorClearances();
+      recomputeHandles();
+      refreshOverlays();
     };
     const resizeObserver = new ResizeObserver(syncFromCss);
     resizeObserver.observe(labelProbe);
@@ -231,7 +251,7 @@ export function App() {
       resizeObserver.disconnect();
       mutationObserver?.disconnect();
     };
-  }, [syncConfiguredChildVisualStyle]);
+  }, [compound, refreshInteriorClearances, refreshOverlays, recomputeHandles, syncConfiguredChildVisualStyle]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -286,7 +306,6 @@ export function App() {
     return () => {
       cy.destroy();
       cyRef.current = null;
-      childVisualStyleSignatureRef.current = "";
     };
   }, [applyConfiguredChildVisualStyle, graphKey, recomputeHandles, refreshOverlays, compound, syncConfiguredChildVisualStyle]);
 

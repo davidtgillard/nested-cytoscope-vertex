@@ -14,6 +14,7 @@ import {
   LEAF_NODE_DIAMETER,
   LEAF_SELECTION_OUTLINE_COLOR,
   LEAF_SELECTION_OUTLINE_WIDTH,
+  NODE_OVERLAP_PADDING,
 } from "./cytoscape-theme";
 import {
   INITIAL_COMPOUND_SLACK,
@@ -37,6 +38,7 @@ import {
   moveChild,
   resizeComposite,
   resizeLooseEdgesFromOuter,
+  type LayoutModelBuildOptions,
   type LayoutNodeInput,
   type ResizeChildConstraints,
   type ResizeCorner,
@@ -164,14 +166,17 @@ export class GraphParentVertex {
         previousUserPanningEnabled: boolean;
       }
     | null = null;
+  private nodeOverlapPadding = NODE_OVERLAP_PADDING;
 
   private constructor(
     readonly id: string,
     readonly label: string,
     readonly color: string,
     childSpecs: GraphChildVertexSpec[],
+    nodeOverlapPadding: number,
   ) {
     this.children = childSpecs.map((spec) => GraphChildVertex.attach(spec));
+    this.nodeOverlapPadding = nodeOverlapPadding;
   }
 
   /** Creates a compound parent and its owned leaf children. */
@@ -183,8 +188,19 @@ export class GraphParentVertex {
     /** Leaf stylesheet fallback color for the container metadata. */
     color: string;
     children: GraphChildVertexSpec[];
+    /**
+     * Model-unit gap added around each leaf footprint when testing sibling collisions
+     * during drag. Defaults to {@link DEFAULT_COMPOUND_GRAPH_THEME.nodeOverlapPadding}.
+     */
+    nodeOverlapPadding?: number;
   }): GraphParentVertex {
-    return new GraphParentVertex(spec.id, spec.label, spec.color, spec.children);
+    return new GraphParentVertex(
+      spec.id,
+      spec.label,
+      spec.color,
+      spec.children,
+      spec.nodeOverlapPadding ?? NODE_OVERLAP_PADDING,
+    );
   }
 
   /** Returns an owned child by id, if present. */
@@ -220,6 +236,18 @@ export class GraphParentVertex {
     const node = this.model?.nodes.get(this.id);
     if (node) {
       node.reservedEdge = modelUnits;
+    }
+  }
+
+  /**
+   * Sets the model-unit gap added around each leaf footprint when testing sibling
+   * collisions during drag. Use {@link CompoundGraphTheme.nodeOverlapPadding} or tune
+   * at runtime without editing library constants.
+   */
+  setNodeOverlapPadding(modelUnits: number): void {
+    this.nodeOverlapPadding = modelUnits;
+    if (this.model) {
+      this.model.nodeOverlapPadding = modelUnits;
     }
   }
 
@@ -739,8 +767,12 @@ export class GraphParentVertex {
   }
 
   private syncModelFromCy(cy: Core): WorkPackageLayoutModel {
-    this.model = layoutModelFromCy(cy, this.layoutInputs);
+    this.model = layoutModelFromCy(cy, this.layoutInputs, this.layoutModelOptions());
     return this.model;
+  }
+
+  private layoutModelOptions(): LayoutModelBuildOptions {
+    return { nodeOverlapPadding: this.nodeOverlapPadding };
   }
 }
 

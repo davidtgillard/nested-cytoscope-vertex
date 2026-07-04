@@ -3,6 +3,7 @@ import { graphNodeModelPosition, measureLeafFootprint } from "./cytoscape-utils"
 import {
   absoluteCenter,
   buildLayoutModel,
+  type LayoutModelBuildOptions,
   type LayoutNodeInput,
   type WorkPackageLayoutModel,
 } from "./layout-model";
@@ -25,7 +26,11 @@ function modelDepth(model: WorkPackageLayoutModel, nodeId: string): number {
  * model's relative frame.
  */
 /** @internal */
-export function layoutModelFromCy(cy: Core, inputs: LayoutNodeInput[]): WorkPackageLayoutModel {
+export function layoutModelFromCy(
+  cy: Core,
+  inputs: LayoutNodeInput[],
+  options?: LayoutModelBuildOptions,
+): WorkPackageLayoutModel {
   const flat: Record<string, { x: number; y: number; w?: number; h?: number }> = {};
   const measuredInputs: LayoutNodeInput[] = [];
   for (const input of inputs) {
@@ -57,7 +62,7 @@ export function layoutModelFromCy(cy: Core, inputs: LayoutNodeInput[]): WorkPack
         : input,
     );
   }
-  return buildLayoutModel(measuredInputs, flat);
+  return buildLayoutModel(measuredInputs, flat, options);
 }
 
 /**

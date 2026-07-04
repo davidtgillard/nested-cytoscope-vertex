@@ -160,6 +160,17 @@ describe("public API", () => {
     expect(TEST_PARENT.isChildDragInProgress()).toBe(false);
   });
 
+  it("setNodeOverlapPadding updates the live layout model", () => {
+    const cy = headlessCy(TEST_PARENT.buildElements());
+    TEST_PARENT.initializeFromCy(cy);
+
+    TEST_PARENT.setNodeOverlapPadding(2);
+    expect(TEST_PARENT.getModel()?.nodeOverlapPadding).toBe(2);
+
+    TEST_PARENT.ensureModelFromCy(cy);
+    expect(TEST_PARENT.getModel()?.nodeOverlapPadding).toBe(2);
+  });
+
   it("SE resize through GraphParentVertex preserves child absolutes", () => {
     const cy = headlessCy(TEST_PARENT.buildElements());
 

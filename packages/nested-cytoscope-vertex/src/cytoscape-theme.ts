@@ -24,6 +24,11 @@ export interface CompoundGraphTheme {
    * dragged, in screen pixels (converted to model units via {@link GraphParentVertex.setEdgeClearance}).
    */
   childEdgeClearancePx: number;
+  /**
+   * Extra model-unit inset added around each leaf's measured footprint when testing
+   * sibling collisions during drag ({@link GraphParentVertex.setNodeOverlapPadding}).
+   */
+  nodeOverlapPadding: number;
   compoundMinSize: { width: number; height: number };
   edgeStyle: {
     width: number;
@@ -47,6 +52,7 @@ export const DEFAULT_COMPOUND_GRAPH_THEME: CompoundGraphTheme = {
   leafNode: { diameter: 36 },
   leafSelection: { outlineWidth: 3, outlineColor: "#38bdf8" },
   childEdgeClearancePx: -5,
+  nodeOverlapPadding: 8,
   compoundMinSize: { width: 80, height: 80 },
   edgeStyle: {
     width: 2,
@@ -210,6 +216,9 @@ export const COMPOUND_MIN_HEIGHT = DEFAULT_COMPOUND_GRAPH_THEME.compoundMinSize.
 
 /** @internal */
 export const CHILD_EDGE_CLEARANCE_PX = DEFAULT_COMPOUND_GRAPH_THEME.childEdgeClearancePx;
+
+/** @internal */
+export const NODE_OVERLAP_PADDING = DEFAULT_COMPOUND_GRAPH_THEME.nodeOverlapPadding;
 
 /** @internal */
 export const LEAF_LABEL_FONT_SIZE = DEFAULT_COMPOUND_GRAPH_THEME.leafLabel.fontSize;

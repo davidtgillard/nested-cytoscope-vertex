@@ -41,7 +41,7 @@ export {
 
 export { type GraphSnapshot } from "./cytoscape-utils";
 
-export type { ResizeCorner, ResizeChildConstraints, ResizeLooseEdges } from "./layout-model";
+export type { ResizeCorner, ResizeChildConstraints, ResizeLooseEdges, LayoutModelBuildOptions } from "./layout-model";
 
 export {
   type CompoundGraphTheme,

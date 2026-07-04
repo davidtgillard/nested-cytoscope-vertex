@@ -99,6 +99,23 @@ describe("layout-model utilities", () => {
     expect(nodesOverlapInModel(overlapping, "a", "b")).toBe(true);
   });
 
+  it("nodeOverlapPadding controls how close siblings may get before colliding", () => {
+    const inputs = [
+      { id: "root", isCompound: true },
+      { id: "a", parent: "root", footprint: { halfW: 20, halfHTop: 20, halfHBottom: 20 } },
+      { id: "b", parent: "root", footprint: { halfW: 20, halfHTop: 20, halfHBottom: 20 } },
+    ];
+    const layout = {
+      root: { x: 0, y: 0, w: 400, h: 400 },
+      a: { x: 0, y: 0 },
+      b: { x: 50, y: 0 },
+    };
+    const tight = buildLayoutModel(inputs, layout, { nodeOverlapPadding: 0 });
+    const padded = buildLayoutModel(inputs, layout, { nodeOverlapPadding: 8 });
+    expect(nodesOverlapInModel(tight, "a", "b")).toBe(false);
+    expect(nodesOverlapInModel(padded, "a", "b")).toBe(true);
+  });
+
   it("resizeComposite no-ops for missing compound metadata", () => {
     const model = buildLayoutModel([{ id: "leaf" }], { leaf: { x: 0, y: 0 } });
     const next = resizeComposite(model, "leaf", "se", 10, 10);

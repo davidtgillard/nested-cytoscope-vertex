@@ -2,6 +2,7 @@ import {
   COMPOUND_MIN_HEIGHT,
   COMPOUND_MIN_WIDTH,
   COMPOUND_PADDING,
+  NODE_OVERLAP_PADDING,
 } from "./cytoscape-theme";
 import { boxesOverlap, detectCollision, resolvePosition, type Point, type VisualBox } from "./collision";
 
@@ -26,7 +27,8 @@ function isOverflowNodeId(_id: string): boolean {
 export const LEAF_VISUAL_HALF_W = 18;
 export const LEAF_VISUAL_HALF_H = 26;
 
-export const NODE_OVERLAP_PADDING = 8;
+/** @deprecated Use {@link NODE_OVERLAP_PADDING} from cytoscape-theme or {@link WorkPackageLayoutModel.nodeOverlapPadding}. */
+export { NODE_OVERLAP_PADDING };
 
 /**
  * A leaf's true visual footprint relative to its own center: how far its rendered shape
@@ -81,6 +83,13 @@ export interface WorkPackageLayoutModel {
   parentOf: Map<string, string>;
   childrenOf: Map<string, string[]>;
   rootIds: string[];
+  /** Model-unit gap added around leaf footprints for sibling collision tests. */
+  nodeOverlapPadding: number;
+}
+
+/** Options when building a {@link WorkPackageLayoutModel}. */
+export interface LayoutModelBuildOptions {
+  nodeOverlapPadding?: number;
 }
 
 /** Corner identifier for compound resize handles. */
@@ -126,6 +135,7 @@ export function cloneLayoutModel(model: WorkPackageLayoutModel): WorkPackageLayo
     parentOf: new Map(model.parentOf),
     childrenOf: new Map(model.childrenOf),
     rootIds: [...model.rootIds],
+    nodeOverlapPadding: model.nodeOverlapPadding,
   };
 }
 
@@ -140,6 +150,7 @@ function setNodeCenter(model: WorkPackageLayoutModel, id: string, center: { x: n
 export function buildLayoutModel(
   inputs: LayoutNodeInput[],
   flatLayout: Record<string, NodePosition> | undefined,
+  options?: LayoutModelBuildOptions,
 ): WorkPackageLayoutModel {
   const parentOf = new Map<string, string>();
   const childrenOf = new Map<string, string[]>();
@@ -190,7 +201,13 @@ export function buildLayoutModel(
     .filter((input) => !input.parent && nodes.has(input.id))
     .map((input) => input.id);
 
-  return { nodes, parentOf, childrenOf, rootIds };
+  return {
+    nodes,
+    parentOf,
+    childrenOf,
+    rootIds,
+    nodeOverlapPadding: options?.nodeOverlapPadding ?? NODE_OVERLAP_PADDING,
+  };
 }
 
 export function flatLayoutFromModel(model: WorkPackageLayoutModel): Record<string, NodePosition> {
@@ -300,7 +317,7 @@ export function visualBox(model: WorkPackageLayoutModel, nodeId: string): Visual
   }
 
   const center = absoluteCenter(model, nodeId);
-  const pad = NODE_OVERLAP_PADDING;
+  const pad = model.nodeOverlapPadding;
   const footprint = leafFootprint(node);
   return {
     x1: center.x - footprint.halfW - pad,
