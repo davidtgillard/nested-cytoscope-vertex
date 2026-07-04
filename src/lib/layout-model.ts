@@ -59,17 +59,10 @@ export interface LayoutNode {
   isOverflow: boolean;
   footprint?: LeafFootprint;
   /**
-   * Model-unit clearance a compound reserves at its top edge for its title, measured
-   * from the title's real rendered DOM box (see GraphParent.setTitleClearance) rather
-   * than assumed as a fixed constant. A DOM title has a fixed CSS pixel size that does
-   * not scale with Cytoscape's zoom, so the number of *model units* it needs changes
-   * with zoom - a static constant would drift as the compound is resized. Falls back to
-   * COMPOUND_PADDING.top (see compositeInteriorBox) until a real measurement lands.
-   */
-  reservedTop?: number;
-  /**
    * Model-unit equivalent of CHILD_EDGE_CLEARANCE_PX at the current zoom (see
-   * GraphParent.setEdgeClearance), applied to the left/right/bottom interior edges.
+   * GraphParent.setEdgeClearance), applied to all four interior edges - including the
+   * top, since the title now renders above the compound's perimeter (see
+   * `.compound-parent-label` in App.css) and no longer needs its own interior clearance.
    * Recomputed every render tick because zoom can change at any time; falls back to
    * COMPOUND_PADDING.left (see compositeInteriorBox) until the first tick lands.
    */
@@ -261,11 +254,10 @@ export function compositeInteriorBox(model: WorkPackageLayoutModel, compositeId:
     return null;
   }
   const node = model.nodes.get(compositeId);
-  const topClearance = node?.reservedTop ?? COMPOUND_PADDING.top;
   const edgeClearance = node?.reservedEdge ?? COMPOUND_PADDING.left;
   return {
     x1: outer.x1 + edgeClearance,
-    y1: outer.y1 + topClearance,
+    y1: outer.y1 + edgeClearance,
     x2: outer.x2 - edgeClearance,
     y2: outer.y2 - edgeClearance,
   };

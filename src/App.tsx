@@ -8,7 +8,12 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { type SyncMode } from "./lib/cytoscape-sync";
-import { CHILD_EDGE_CLEARANCE_PX, LEAF_LABEL_MARGIN_Y, LEAF_NODE_DIAMETER } from "./lib/cytoscape-theme";
+import {
+  CHILD_EDGE_CLEARANCE_PX,
+  COMPOUND_TITLE_BASE_FONT_SIZE,
+  LEAF_LABEL_MARGIN_Y,
+  LEAF_NODE_DIAMETER,
+} from "./lib/cytoscape-theme";
 import { snapshotDelta, type GraphSnapshot } from "./lib/cytoscape-utils";
 import {
   type ChildDragVisual,
@@ -172,8 +177,6 @@ export function App() {
   const cyRef = useRef<Core | null>(null);
   const compoundRef = useRef(DEMO_COMPOUND);
   const childDragCleanupRef = useRef<(() => void) | null>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLDivElement>(null);
   const resizeStartRef = useRef<{
     corner: ResizeCorner;
     startClientX: number;
@@ -223,14 +226,13 @@ export function App() {
   }, [compound]);
 
   /**
-   * Both the parent's title and its left/right/bottom edge clearance need to stay a
-   * constant number of *screen pixels*, not model units, so they read correctly no
-   * matter how far Cytoscape's `fit: true` layout has zoomed in or out - the title
-   * because it's a DOM overlay with a fixed CSS font-size that never scales with zoom,
-   * and the edge clearance because CHILD_EDGE_CLEARANCE_PX is authored in pixels so it's
-   * easy to tune independent of zoom. The title is measured from its actual rendered box
-   * (mirroring how measureLeafFootprint measures the child instead of guessing); the
-   * edge clearance has no DOM element to measure, so it's just divided by zoom directly.
+   * The child's left/right/bottom/top edge clearance needs to stay a constant number of
+   * *screen pixels*, not model units, so it reads correctly no matter how far
+   * Cytoscape's `fit: true` layout has zoomed in or out - CHILD_EDGE_CLEARANCE_PX is
+   * authored in pixels so it's easy to tune independent of zoom. There's no DOM element
+   * to measure here, so it's just divided by zoom directly. (The title itself now
+   * renders above the compound's perimeter - see `.compound-parent-label` in App.css -
+   * so it no longer needs its own interior clearance.)
    */
   const refreshInteriorClearances = useCallback(() => {
     const cy = cyRef.current;
@@ -243,17 +245,6 @@ export function App() {
     }
 
     compound.setEdgeClearance(CHILD_EDGE_CLEARANCE_PX / zoom);
-
-    const overlayEl = overlayRef.current;
-    const titleEl = titleRef.current;
-    if (!overlayEl || !titleEl) {
-      return;
-    }
-    const overlayRect = overlayEl.getBoundingClientRect();
-    const titleRect = titleEl.getBoundingClientRect();
-    const TITLE_BOTTOM_BUFFER_PX = 6;
-    const clearancePx = titleRect.bottom - overlayRect.top + TITLE_BOTTOM_BUFFER_PX;
-    compound.setTitleClearance(clearancePx / zoom);
   }, [compound]);
 
   useEffect(() => {
@@ -515,7 +506,6 @@ export function App() {
           />
           {parentDragVisual ? (
             <div
-              ref={overlayRef}
               className={`compound-parent-overlay${parentDragVisual.selected ? " is-selected" : ""}`}
               style={{
                 left: parentDragVisual.left,
@@ -524,7 +514,10 @@ export function App() {
                 height: parentDragVisual.height,
               }}
             >
-              <div ref={titleRef} className="compound-parent-label">
+              <div
+                className="compound-parent-label"
+                style={{ fontSize: COMPOUND_TITLE_BASE_FONT_SIZE * parentDragVisual.zoomScale }}
+              >
                 {parentDragVisual.label}
               </div>
             </div>

@@ -43,6 +43,16 @@ export interface ParentDragVisual {
   height: number;
   label: string;
   selected: boolean;
+  /**
+   * Current zoom relative to the zoom Cytoscape's initial `fit: true` layout landed on
+   * (1 = unchanged since first render), so the DOM title overlay can shrink/grow as the
+   * user actually zooms in or out (see COMPOUND_TITLE_BASE_FONT_SIZE in
+   * cytoscape-theme.ts). Using the raw absolute `cy.zoom()` instead would be wrong here:
+   * `fit: true` can land anywhere far from 1 depending on how much screen space the
+   * graph's model-unit size fills, which would make the title huge or tiny from the very
+   * first frame rather than only in response to the user's own zoom gestures.
+   */
+  zoomScale: number;
 }
 
 const PRESET_LAYOUT = {
@@ -90,6 +100,8 @@ export class GraphParent {
   readonly child: GraphChild;
   private model: WorkPackageLayoutModel | null = null;
   private syncMode: SyncMode = "model";
+  /** Zoom captured right after the initial `fit: true` layout lands; see ParentDragVisual.zoomScale. */
+  private referenceZoom = 1;
   private childDragActive = false;
   private childDragSession:
     | {
@@ -134,18 +146,6 @@ export class GraphParent {
 
   getModel(): WorkPackageLayoutModel | null {
     return this.model;
-  }
-
-  /**
-   * Records how many model units the parent's title currently needs, measured from its
-   * real rendered DOM box (see App.tsx). Mutates the model in place (no cy round-trip
-   * needed) so the very next drag/clamp computation picks it up immediately.
-   */
-  setTitleClearance(modelUnits: number): void {
-    const node = this.model?.nodes.get(this.id);
-    if (node) {
-      node.reservedTop = modelUnits;
-    }
   }
 
   /**
@@ -205,6 +205,8 @@ export class GraphParent {
     this.syncModelFromCy(cy);
     this.enableDirectDragging(cy);
     this.configureDetachedChildDrag(cy);
+    const zoom = cy.zoom();
+    this.referenceZoom = zoom > 0 ? zoom : 1;
     return snapshotGraphState(cy, this.id, this.childIds);
   }
 
@@ -309,6 +311,7 @@ export class GraphParent {
       ...box,
       label: this.label,
       selected: parent.selected(),
+      zoomScale: cy.zoom() / this.referenceZoom,
     };
   }
 
