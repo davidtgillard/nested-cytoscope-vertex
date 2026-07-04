@@ -380,8 +380,12 @@ export class GraphParent {
 
   /**
    * Parent dragging is allowed to update Cytoscape directly because the visual behavior
-   * already feels correct. We only need to mirror the dragged center back into the model
-   * so the debug panel stays in sync.
+   * already feels correct. We mirror the dragged center back into the model (so the debug
+   * panel stays in sync), then push the child's recomputed absolute position back into
+   * Cytoscape. The child has no real `parent` relationship in Cytoscape's own graph (see
+   * GraphChild.toElementDefinition), so Cytoscape never drags it along on its own -
+   * without this step the child would stay put while the parent's (overlay-rendered)
+   * border moves out from under it.
    */
   syncParentDragFromCy(cy: Core): void {
     const model = this.ensureModelFromCy(cy);
@@ -390,6 +394,20 @@ export class GraphParent {
       return;
     }
     this.model = moveComposite(model, this.id, cyParent.position());
+    this.applyChildPositionFromModel(cy);
+  }
+
+  /** Push the child's model-derived absolute position into its real Cytoscape node. */
+  private applyChildPositionFromModel(cy: Core): void {
+    const model = this.model;
+    if (!model) {
+      return;
+    }
+    const cyChild = cy.getElementById(this.child.id);
+    if (cyChild.empty()) {
+      return;
+    }
+    cyChild.position(absoluteCenter(model, this.child.id));
   }
 
   attachParentDragHandlers(
