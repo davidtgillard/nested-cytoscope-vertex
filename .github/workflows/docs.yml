@@ -1,0 +1,89 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test with coverage
+        run: npm run test:coverage
+
+      - name: Build API docs
+        run: npm run docs
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/api _site/coverage
+          cp -r docs/api/. _site/api/
+          cp -r packages/nested-cytoscope-vertex/coverage/. _site/coverage/
+          cat > _site/index.html <<'HTML'
+          <!DOCTYPE html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>@dgillard/nested-cytoscope-vertex</title>
+              <style>
+                body {
+                  font-family: system-ui, sans-serif;
+                  line-height: 1.5;
+                  margin: 2rem auto;
+                  max-width: 40rem;
+                  padding: 0 1rem;
+                }
+              </style>
+            </head>
+            <body>
+              <h1>@dgillard/nested-cytoscope-vertex</h1>
+              <ul>
+                <li><a href="api/">API documentation</a></li>
+                <li><a href="coverage/">Code coverage report</a></li>
+              </ul>
+            </body>
+          </html>
+          HTML
+          touch _site/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

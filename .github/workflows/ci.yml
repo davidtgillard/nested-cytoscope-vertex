@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck library
+        run: npm run typecheck -w @dgillard/nested-cytoscope-vertex
+
+      - name: Build
+        run: npm run build
+
+      - name: Test with coverage
+        id: test
+        run: npm run test:coverage
+
+      - name: Coverage summary
+        if: always() && steps.test.outcome != 'skipped'
+        run: |
+          node <<'NODE'
+          import fs from "node:fs";
+          import path from "node:path";
+
+          const summaryPath = path.join(
+            "packages",
+            "nested-cytoscope-vertex",
+            "coverage",
+            "coverage-summary.json",
+          );
+
+          if (!fs.existsSync(summaryPath)) {
+            console.log("No coverage data available (coverage-summary.json missing).");
+            process.exit(0);
+          }
+
+          const { total } = JSON.parse(fs.readFileSync(summaryPath, "utf8"));
+          const fmt = (metric) =>
+            `${metric.covered}/${metric.total} (${metric.pct}%)`;
+
+          console.log(`Line coverage: ${fmt(total.lines)}`);
+          console.log(`Branch coverage: ${fmt(total.branches)}`);
+          console.log(`Function coverage: ${fmt(total.functions)}`);
+          console.log(`Statement coverage: ${fmt(total.statements)}`);
+
+          if (process.env.GITHUB_STEP_SUMMARY) {
+            const md = [
+              "## Coverage",
+              "",
+              "| Metric | Covered | Total | Percent |",
+              "| --- | ---: | ---: | ---: |",
+              `| Lines | ${total.lines.covered} | ${total.lines.total} | ${total.lines.pct}% |`,
+              `| Branches | ${total.branches.covered} | ${total.branches.total} | ${total.branches.pct}% |`,
+              `| Functions | ${total.functions.covered} | ${total.functions.total} | ${total.functions.pct}% |`,
+              `| Statements | ${total.statements.covered} | ${total.statements.total} | ${total.statements.pct}% |`,
+              "",
+            ].join("\n");
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
+          }
+          NODE
+
+      - name: Upload coverage reports
+        if: always() && steps.test.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            packages/nested-cytoscope-vertex/coverage/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: npm audit
+        run: npm audit --audit-level=high

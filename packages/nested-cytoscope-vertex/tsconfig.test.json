@@ -4,7 +4,10 @@
     "rootDir": ".",
     "noEmit": true,
     "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "noUnusedParameters": false,
+    "paths": {
+      "@dgillard/nested-cytoscope-vertex": ["./src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],
   "exclude": []
