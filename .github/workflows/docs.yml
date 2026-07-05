@@ -43,14 +43,14 @@ jobs:
         run: |
           mkdir -p _site/api _site/coverage
           cp -r docs/api/. _site/api/
-          cp -r packages/nested-cytoscope-vertex/coverage/. _site/coverage/
+          cp -r packages/cytoscape-compound-graph/coverage/. _site/coverage/
           cat > _site/index.html <<'HTML'
           <!DOCTYPE html>
           <html lang="en">
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1" />
-              <title>@dgillard/nested-cytoscope-vertex</title>
+              <title>@dgillard/cytoscape-compound-graph</title>
               <style>
                 body {
                   font-family: system-ui, sans-serif;
@@ -62,7 +62,7 @@ jobs:
               </style>
             </head>
             <body>
-              <h1>@dgillard/nested-cytoscope-vertex</h1>
+              <h1>@dgillard/cytoscape-compound-graph</h1>
               <ul>
                 <li><a href="api/">API documentation</a></li>
                 <li><a href="coverage/">Code coverage report</a></li>

@@ -22,7 +22,7 @@ jobs:
         run: npm ci
 
       - name: Typecheck library
-        run: npm run typecheck -w @dgillard/nested-cytoscope-vertex
+        run: npm run typecheck -w @dgillard/cytoscape-compound-graph
 
       - name: Build
         run: npm run build
@@ -40,7 +40,7 @@ jobs:
 
           const summaryPath = path.join(
             "packages",
-            "nested-cytoscope-vertex",
+            "cytoscape-compound-graph",
             "coverage",
             "coverage-summary.json",
           );
@@ -81,7 +81,7 @@ jobs:
         with:
           name: coverage-reports
           path: |
-            packages/nested-cytoscope-vertex/coverage/
+            packages/cytoscape-compound-graph/coverage/
           retention-days: 14
           if-no-files-found: ignore
 

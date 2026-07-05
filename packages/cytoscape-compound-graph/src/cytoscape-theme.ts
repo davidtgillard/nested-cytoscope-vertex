@@ -205,6 +205,13 @@ export function createCompoundGraphStylesheet(
   ];
 }
 
+export function mergeCompoundGraphStylesheet(
+  base: StylesheetStyle[],
+  partialTheme?: Partial<CompoundGraphTheme>,
+): StylesheetStyle[] {
+  return [...base, ...createCompoundGraphStylesheet(partialTheme)];
+}
+
 /** @internal */
 export const COMPOUND_PADDING = DEFAULT_COMPOUND_GRAPH_THEME.compoundPadding;
 

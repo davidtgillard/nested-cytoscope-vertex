@@ -4,6 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GraphParentVertex, createCompoundGraphStylesheet } from "./index";
 import { snapshotDelta } from "./cytoscape-utils";
 import { absoluteCenter } from "./layout-model";
+import {
+  applySubtreePositionsToCy,
+  pinContainerToModel,
+} from "./compound-graph-core";
 
 const TEST_PARENT = GraphParentVertex.create({
   id: "parent",
@@ -56,6 +60,7 @@ type ParentVertexInternals = {
   measureFromCy(cy: cytoscape.Core): void;
   childDragActive: boolean;
   childDragSession: { childId: string } | null;
+  referenceZoom: number;
 };
 
 function asInternal(parent: GraphParentVertex): ParentVertexInternals {
@@ -71,8 +76,6 @@ function withMutableModel(parent: GraphParentVertex) {
 function withPrivateMethods(parent: GraphParentVertex) {
   return parent as unknown as ParentVertexInternals & {
     model: NonNullable<ReturnType<GraphParentVertex["getModel"]>> | null;
-    pinParentToModel(cy: cytoscape.Core): void;
-    applyChildrenPositionsFromModel(cy: cytoscape.Core): void;
     syncModelFromCy(cy: cytoscape.Core): ReturnType<GraphParentVertex["getModel"]>;
   };
 }
@@ -109,7 +112,7 @@ describe("compound-graph internals", () => {
     expect(() => parent.ensureModelFromCy(cy)).toThrow("layout model not initialized");
   });
 
-  it("pinParentToModel and applyChildrenPositionsFromModel no-op without a model", () => {
+  it("pinContainerToModel and applySubtreePositionsToCy tolerate missing nodes", () => {
     const parent = GraphParentVertex.create({
       id: "parent",
       label: "parent",
@@ -118,10 +121,9 @@ describe("compound-graph internals", () => {
     });
     const cy = headlessCy(parent.buildElements());
     parent.initializeFromCy(cy);
-    const internal = withPrivateMethods(parent);
-    internal.model = null;
-    expect(() => internal.pinParentToModel(cy)).not.toThrow();
-    expect(() => internal.applyChildrenPositionsFromModel(cy)).not.toThrow();
+    const model = parent.getModel()!;
+    expect(() => pinContainerToModel(cy, model, "missing")).not.toThrow();
+    expect(() => applySubtreePositionsToCy(cy, model, "missing")).not.toThrow();
   });
 
   it("snapshotDelta reports zero drift when parent resizes", () => {
@@ -259,6 +261,28 @@ describe("compound-graph internals", () => {
     cy.getElementById("parent").remove();
     internal.beginChildDrag(cy, "child");
     expect(parent.isChildDragInProgress()).toBe(false);
+  });
+
+  it("attachParentDragHandlers ignores grab and free while child drag is active", () => {
+    const parent = GraphParentVertex.create({
+      id: "parent",
+      label: "parent",
+      color: "#000",
+      children: [{ id: "child", label: "child", color: "#111" }],
+    });
+    const internal = asInternal(parent);
+    const cy = headlessCy(parent.buildElements());
+    parent.initializeFromCy(cy);
+    internal.beginChildDrag(cy, "child");
+    const onGrab = vi.fn();
+    const onChange = vi.fn();
+    parent.attachParentDragHandlers(cy, { onGrab, onChange });
+    cy.getElementById("parent").trigger("grab");
+    cy.getElementById("parent").trigger("drag");
+    cy.getElementById("parent").trigger("free");
+    expect(onGrab).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    internal.finishChildDrag(cy);
   });
 
   it("syncParentDragFromCy skips child elements that are missing from cy", () => {
@@ -404,5 +428,92 @@ describe("compound-graph internals", () => {
     expect(during.children["wp-pdf-export"].absolute.x).toBeCloseTo(expectedAbsolute!.x, 3);
     expect(during.children["wp-pdf-export"].absolute.y).toBeCloseTo(expectedAbsolute!.y, 3);
     compound.finishChildDrag(cy);
+  });
+
+  it("setNodeOverlapPadding updates padding before the model exists", () => {
+    const parent = GraphParentVertex.create({
+      id: "parent",
+      label: "parent",
+      color: "#000",
+      children: [{ id: "child", label: "child", color: "#111" }],
+    });
+    parent.setNodeOverlapPadding(14);
+    const cy = headlessCy(parent.buildElements());
+    parent.initializeFromCy(cy);
+    expect(parent.getModel()?.nodeOverlapPadding).toBe(14);
+  });
+
+  it("setEdgeClearance no-ops when the model is absent", () => {
+    const parent = GraphParentVertex.create({
+      id: "parent",
+      label: "parent",
+      color: "#000",
+      children: [{ id: "child", label: "child", color: "#111" }],
+    });
+    expect(() => parent.setEdgeClearance(8)).not.toThrow();
+  });
+
+  it("ensureModelFromCy re-syncs when compound outer boxes are missing", () => {
+    const parent = GraphParentVertex.create({
+      id: "parent",
+      label: "parent",
+      color: "#000",
+      children: [{ id: "child", label: "child", color: "#111" }],
+    });
+    const internal = withMutableModel(parent);
+    const cy = headlessCy(parent.buildElements());
+    parent.initializeFromCy(cy);
+    internal.model!.nodes.get("parent")!.size = undefined;
+    const constraints = parent.computeResizeChildConstraints(cy);
+    expect(parent.getModel()?.nodes.get("parent")?.size).toBeDefined();
+    expect(constraints.childrenBox).not.toBeNull();
+  });
+
+  it("initializeFromCy uses a unit reference zoom when cy zoom is zero", () => {
+    const parent = GraphParentVertex.create({
+      id: "parent",
+      label: "parent",
+      color: "#000",
+      children: [{ id: "child", label: "child", color: "#111" }],
+    });
+    const internal = asInternal(parent);
+    const cy = headlessCy(parent.buildElements());
+    vi.spyOn(cy, "zoom").mockImplementation(
+      ((...args: Parameters<typeof cy.zoom>) => (args.length === 0 ? 0 : cy)) as typeof cy.zoom,
+    );
+    parent.initializeFromCy(cy);
+    expect(internal.referenceZoom).toBe(1);
+  });
+
+  it("finishChildDrag without a session still resets drag state", () => {
+    const parent = GraphParentVertex.create({
+      id: "parent",
+      label: "parent",
+      color: "#000",
+      children: [{ id: "child", label: "child", color: "#111" }],
+    });
+    const internal = asInternal(parent);
+    const cy = headlessCy(parent.buildElements());
+    parent.initializeFromCy(cy);
+    internal.childDragActive = true;
+    internal.childDragSession = null;
+    expect(() => internal.finishChildDrag(cy)).not.toThrow();
+    expect(internal.childDragActive).toBe(false);
+  });
+
+  it("computeResizeChildConstraints uses padding fallback when cy zoom is zero", () => {
+    const parent = GraphParentVertex.create({
+      id: "parent",
+      label: "parent",
+      color: "#000",
+      children: [{ id: "child", label: "child", color: "#111" }],
+    });
+    const cy = headlessCy(parent.buildElements());
+    parent.initializeFromCy(cy);
+    vi.spyOn(cy, "zoom").mockImplementation(
+      ((...args: Parameters<typeof cy.zoom>) => (args.length === 0 ? 0 : cy)) as typeof cy.zoom,
+    );
+    const constraints = parent.computeResizeChildConstraints(cy);
+    expect(constraints.edgeClearance).toBeGreaterThan(0);
   });
 });

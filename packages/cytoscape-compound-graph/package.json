@@ -1,7 +1,7 @@
 {
-  "name": "@dgillard/nested-cytoscope-vertex",
-  "version": "0.1.0",
-  "description": "GraphParentVertex compound graph API for Cytoscape with nested resize and drag",
+  "name": "@dgillard/cytoscape-compound-graph",
+  "version": "0.2.0",
+  "description": "Compound graph layout for Cytoscape with drag, resize, and nested containers",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

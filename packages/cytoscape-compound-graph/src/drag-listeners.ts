@@ -2,14 +2,18 @@
 export function clientPointFromDomEvent(
   event: MouseEvent | PointerEvent | TouchEvent,
 ): { clientX: number; clientY: number } | null {
-  if ("clientX" in event && "clientY" in event) {
+  if (event instanceof MouseEvent || event instanceof PointerEvent) {
     return { clientX: event.clientX, clientY: event.clientY };
   }
-  const touch = event.touches[0] ?? event.changedTouches[0];
-  if (!touch) {
-    return null;
+  if (event instanceof TouchEvent || "touches" in event || "changedTouches" in event) {
+    const touchEvent = event as TouchEvent;
+    const touch = touchEvent.touches[0] ?? touchEvent.changedTouches[0];
+    if (!touch) {
+      return null;
+    }
+    return { clientX: touch.clientX, clientY: touch.clientY };
   }
-  return { clientX: touch.clientX, clientY: touch.clientY };
+  return null;
 }
 
 /** Client coordinates from a Cytoscape `originalEvent`, when it is a DOM event. */

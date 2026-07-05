@@ -14,7 +14,7 @@ import {
   type ParentDragVisual,
   type ResizeChildConstraints,
   type ResizeCorner,
-} from "@dgillard/nested-cytoscope-vertex";
+} from "@dgillard/cytoscape-compound-graph";
 import { createDemoCy, DEMO_COMPOUND, DEMO_THEME } from "./demo-graph";
 
 const CORNERS: ResizeCorner[] = ["nw", "ne", "sw", "se"];

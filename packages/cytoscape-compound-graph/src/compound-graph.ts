@@ -17,9 +17,16 @@ import {
   NODE_OVERLAP_PADDING,
 } from "./cytoscape-theme";
 import {
-  INITIAL_COMPOUND_SLACK,
+  applySubtreePositionsToCy,
+  configureDetachedChildDrag,
+  enableContainerDragging,
+  measureContainerFromCy,
+  pinContainerToModel,
+  renderedContainerBoxFromModel,
+  restoreLeafVisibility,
+} from "./compound-graph-core";
+import {
   compoundAbsolutePosition,
-  compoundSizeForContent,
   childrenFitBoxAbsoluteFromCy,
   snapshotGraphState,
   syncLeafFootprintsFromCy,
@@ -70,14 +77,6 @@ export interface ParentDragVisual {
    * in App.css as the authoritative base size.
    */
   zoomScale: number;
-}
-
-/** Screen-space axis-aligned rectangle in container pixel coordinates. @internal */
-interface RenderedBoxRect {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
 }
 
 /** Specification for a leaf child owned by a {@link GraphParentVertex}. */
@@ -271,8 +270,8 @@ export class GraphParentVertex {
   initializeFromCy(cy: Core): GraphSnapshot {
     this.measureFromCy(cy);
     this.syncModelFromCy(cy);
-    this.enableDirectDragging(cy);
-    this.configureDetachedChildDrag(cy);
+    enableContainerDragging(cy, [this.id]);
+    configureDetachedChildDrag(cy, this.childIds);
     const zoom = cy.zoom();
     this.referenceZoom = zoom > 0 ? zoom : 1;
     return snapshotGraphState(cy, this.id, this.childIds);
@@ -442,10 +441,12 @@ export class GraphParentVertex {
       return;
     }
     applyLayoutModelToCy(cy, this.model);
-    this.pinParentToModel(cy);
-    this.restoreChildVisibility(cy);
-    this.enableDirectDragging(cy);
-    this.configureDetachedChildDrag(cy);
+    if (this.model) {
+      pinContainerToModel(cy, this.model, this.id);
+    }
+    restoreLeafVisibility(cy, this.childIds);
+    enableContainerDragging(cy, [this.id]);
+    configureDetachedChildDrag(cy, this.childIds);
   }
 
   /** True while a detached child drag session is in progress. */
@@ -574,7 +575,9 @@ export class GraphParentVertex {
       y: session.startChildAbsolute.y + delta.y - session.parentAbsolute.y,
     });
     this.model = nextModel;
-    this.pinParentToModel(cy);
+    if (this.model) {
+      pinContainerToModel(cy, this.model, this.id);
+    }
   }
 
   private beginChildDrag(cy: Core, childId: string): void {
@@ -615,7 +618,9 @@ export class GraphParentVertex {
     cy.userPanningEnabled(false);
     cyChild.style("opacity", 0);
     cyChild.style("events", "no");
-    this.pinParentToModel(cy);
+    if (this.model) {
+      pinContainerToModel(cy, this.model, this.id);
+    }
   }
 
   private finishChildDrag(cy: Core): void {
@@ -626,19 +631,19 @@ export class GraphParentVertex {
       cy.userPanningEnabled(session.previousUserPanningEnabled);
     }
     if (!model) {
-      this.restoreChildVisibility(cy);
-      this.enableDirectDragging(cy);
-      this.configureDetachedChildDrag(cy);
+      restoreLeafVisibility(cy, this.childIds);
+      enableContainerDragging(cy, [this.id]);
+      configureDetachedChildDrag(cy, this.childIds);
       this.childDragActive = false;
       this.childDragSession = null;
       return;
     }
 
     applyLayoutModelToCy(cy, model);
-    this.pinParentToModel(cy);
-    this.restoreChildVisibility(cy);
-    this.enableDirectDragging(cy);
-    this.configureDetachedChildDrag(cy);
+    pinContainerToModel(cy, model, this.id);
+    restoreLeafVisibility(cy, this.childIds);
+    enableContainerDragging(cy, [this.id]);
+    configureDetachedChildDrag(cy, this.childIds);
     this.childDragActive = false;
     this.childDragSession = null;
   }
@@ -650,120 +655,22 @@ export class GraphParentVertex {
       return;
     }
     this.model = moveComposite(model, this.id, cyParent.position());
-    this.applyChildrenPositionsFromModel(cy);
-  }
-
-  private applyChildrenPositionsFromModel(cy: Core): void {
-    const model = this.model;
-    if (!model) {
-      return;
-    }
-    for (const childId of this.childIds) {
-      const cyChild = cy.getElementById(childId);
-      if (cyChild.empty()) {
-        continue;
-      }
-      cyChild.position(absoluteCenter(model, childId));
+    if (this.model) {
+      applySubtreePositionsToCy(cy, this.model, this.id);
     }
   }
 
   private measureFromCy(cy: Core): void {
-    cy.batch(() => {
-      const parent = cy.getElementById(this.id);
-      if (parent.empty() || parent.data("compoundWidth") !== undefined) {
-        return;
-      }
-
-      let x1 = Infinity;
-      let y1 = Infinity;
-      let x2 = -Infinity;
-      let y2 = -Infinity;
-      let hasChild = false;
-      for (const childId of this.childIds) {
-        const child = cy.getElementById(childId);
-        if (child.empty()) {
-          continue;
-        }
-        hasChild = true;
-        const box = child.boundingBox({ includeLabels: true, includeOverlays: false });
-        x1 = Math.min(x1, box.x1);
-        y1 = Math.min(y1, box.y1);
-        x2 = Math.max(x2, box.x2);
-        y2 = Math.max(y2, box.y2);
-      }
-      if (!hasChild) {
-        return;
-      }
-
-      const fit = compoundSizeForContent({ x1, y1, x2, y2 });
-      const w = fit.w + INITIAL_COMPOUND_SLACK;
-      const h = fit.h + INITIAL_COMPOUND_SLACK;
-      parent.data("compoundWidth", w);
-      parent.data("compoundHeight", h);
-      parent.position({ x: (x1 + x2) / 2, y: (y1 + y2) / 2 });
-    });
-  }
-
-  private enableDirectDragging(cy: Core): void {
-    const parent = cy.getElementById(this.id);
-    if (parent.empty()) {
-      return;
-    }
-    parent.unlock();
-    parent.grabify();
-  }
-
-  private configureDetachedChildDrag(cy: Core): void {
-    for (const childId of this.childIds) {
-      const child = cy.getElementById(childId);
-      if (!child.empty()) {
-        child.ungrabify();
-      }
-    }
-  }
-
-  private restoreChildVisibility(cy: Core): void {
-    for (const childId of this.childIds) {
-      const child = cy.getElementById(childId);
-      if (!child.empty()) {
-        child.removeStyle();
-      }
-    }
-  }
-
-  private pinParentToModel(cy: Core): void {
-    const model = this.model;
-    if (!model) {
-      return;
-    }
-    const parentNode = model.nodes.get(this.id);
-    const parentSize = parentNode?.size;
-    if (!parentNode || !parentSize) {
-      return;
-    }
-    const cyParent = cy.getElementById(this.id);
-    if (cyParent.empty()) {
-      return;
-    }
-    cy.batch(() => {
-      cyParent.data("compoundWidth", parentSize.w);
-      cyParent.data("compoundHeight", parentSize.h);
-      cyParent.position({ x: parentNode.center.x, y: parentNode.center.y });
-    });
+    measureContainerFromCy(cy, this.id, this.childIds);
   }
 
   private renderedParentBoxFromModel(
     cy: Core,
   ): { left: number; top: number; width: number; height: number } | null {
-    const model = this.model;
-    if (!model) {
+    if (!this.model) {
       return null;
     }
-    const box = compositeOuterBox(model, this.id);
-    if (!box) {
-      return null;
-    }
-    return renderedBoxRect(cy, box);
+    return renderedContainerBoxFromModel(cy, this.model, this.id);
   }
 
   private syncModelFromCy(cy: Core): WorkPackageLayoutModel {
@@ -774,19 +681,5 @@ export class GraphParentVertex {
   private layoutModelOptions(): LayoutModelBuildOptions {
     return { nodeOverlapPadding: this.nodeOverlapPadding };
   }
-}
-
-function renderedBoxRect(
-  cy: Core,
-  box: { x1: number; y1: number; x2: number; y2: number },
-): RenderedBoxRect {
-  const pan = cy.pan();
-  const zoom = cy.zoom();
-  return {
-    left: box.x1 * zoom + pan.x,
-    top: box.y1 * zoom + pan.y,
-    width: (box.x2 - box.x1) * zoom,
-    height: (box.y2 - box.y1) * zoom,
-  };
 }
 

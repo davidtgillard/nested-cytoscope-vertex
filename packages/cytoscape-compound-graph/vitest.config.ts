@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
-      "@dgillard/nested-cytoscope-vertex": path.resolve(__dirname, "src/index.ts"),
+      "@dgillard/cytoscape-compound-graph": path.resolve(__dirname, "src/index.ts"),
     },
   },
   test: {

@@ -6,9 +6,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@dgillard/nested-cytoscope-vertex": path.resolve(
+      "@dgillard/cytoscape-compound-graph": path.resolve(
         __dirname,
-        "../../packages/nested-cytoscope-vertex/src/index.ts",
+        "../../packages/cytoscape-compound-graph/src/index.ts",
       ),
     },
   },

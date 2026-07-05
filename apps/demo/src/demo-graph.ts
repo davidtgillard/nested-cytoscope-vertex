@@ -4,7 +4,7 @@ import {
   GraphParentVertex,
   createCompoundGraphStylesheet,
   DEFAULT_COMPOUND_GRAPH_THEME,
-} from "@dgillard/nested-cytoscope-vertex";
+} from "@dgillard/cytoscape-compound-graph";
 
 /** Demo theme overrides — tune spacing and visuals here without editing the library. */
 export const DEMO_THEME = {

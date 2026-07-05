@@ -13,8 +13,9 @@ interface NodePosition {
   h?: number;
 }
 
-function isOverflowNodeId(_id: string): boolean {
-  return false;
+export const OVERFLOW_NODE_PREFIX = "__overflow__:";
+export function isOverflowNodeId(id: string): boolean {
+  return id.startsWith(OVERFLOW_NODE_PREFIX);
 }
 
 /**

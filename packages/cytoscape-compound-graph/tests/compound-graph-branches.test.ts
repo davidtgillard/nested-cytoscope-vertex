@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import cytoscape, { type EventObject } from "cytoscape";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GraphParentVertex } from "@dgillard/nested-cytoscope-vertex";
+import { GraphParentVertex } from "@dgillard/cytoscape-compound-graph";
 import {
   captureTapstartHandler,
   headlessCy,

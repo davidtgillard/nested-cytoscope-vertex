@@ -285,6 +285,26 @@ describe("layout-model box helpers", () => {
     expect(result.y2 - result.y1).toBeGreaterThanOrEqual(COMPOUND_MIN_HEIGHT);
   });
 
+  it("resizeCompoundBoxFromCorner enforces minimum width and height independently without children", () => {
+    const narrow = resizeCompoundBoxFromCorner(
+      { x1: 0, y1: 0, x2: 10, y2: COMPOUND_MIN_HEIGHT },
+      "se",
+      -5,
+      0,
+      { childrenBox: null, edgeClearance: 10, looseEdges: ALL_LOOSE_EDGES },
+    );
+    expect(narrow.x2 - narrow.x1).toBeGreaterThanOrEqual(COMPOUND_MIN_WIDTH);
+
+    const short = resizeCompoundBoxFromCorner(
+      { x1: 0, y1: 0, x2: COMPOUND_MIN_WIDTH, y2: 10 },
+      "se",
+      0,
+      -5,
+      { childrenBox: null, edgeClearance: 10, looseEdges: ALL_LOOSE_EDGES },
+    );
+    expect(short.y2 - short.y1).toBeGreaterThanOrEqual(COMPOUND_MIN_HEIGHT);
+  });
+
   it("resizeCompoundBoxFromCorner supports north-west handles without children", () => {
     const start = { x1: 0, y1: 0, x2: COMPOUND_MIN_WIDTH, y2: COMPOUND_MIN_HEIGHT };
     const result = resizeCompoundBoxFromCorner(start, "nw", 50, 50, {
@@ -292,6 +312,30 @@ describe("layout-model box helpers", () => {
       edgeClearance: 10,
       looseEdges: { west: true, east: true, north: true, south: true },
     });
+    expect(result.x2 - result.x1).toBeGreaterThanOrEqual(COMPOUND_MIN_WIDTH);
+    expect(result.y2 - result.y1).toBeGreaterThanOrEqual(COMPOUND_MIN_HEIGHT);
+  });
+
+  it("resizeCompoundBoxFromCorner enforces minimum width after south-only shrink without children", () => {
+    const result = resizeCompoundBoxFromCorner(
+      { x1: 0, y1: 0, x2: 5, y2: 100 },
+      "se",
+      0,
+      -90,
+      { childrenBox: null, edgeClearance: 10, looseEdges: ALL_LOOSE_EDGES },
+    );
+    expect(result.x2 - result.x1).toBeGreaterThanOrEqual(COMPOUND_MIN_WIDTH);
+    expect(result.y2 - result.y1).toBeGreaterThanOrEqual(COMPOUND_MIN_HEIGHT);
+  });
+
+  it("resizeCompoundBoxFromCorner enforces minimum height after west-only shrink without children", () => {
+    const result = resizeCompoundBoxFromCorner(
+      { x1: 0, y1: 0, x2: 100, y2: 5 },
+      "sw",
+      -90,
+      0,
+      { childrenBox: null, edgeClearance: 10, looseEdges: ALL_LOOSE_EDGES },
+    );
     expect(result.x2 - result.x1).toBeGreaterThanOrEqual(COMPOUND_MIN_WIDTH);
     expect(result.y2 - result.y1).toBeGreaterThanOrEqual(COMPOUND_MIN_HEIGHT);
   });
@@ -597,5 +641,20 @@ describe("layout-model move and resize branches", () => {
     expect(outer.y2).toBeCloseTo(expectedMinBottom, 3);
     expect(outer.x1).toBeCloseTo(startOuter.x1, 3);
     expect(outer.y1).toBeCloseTo(startOuter.y1, 3);
+  });
+
+  it("resizeComposite skips descendants whose parent metadata disappears mid-resize", () => {
+    const model = buildLayoutModel(
+      [
+        { id: "parent", isCompound: true },
+        { id: "child", parent: "parent" },
+      ],
+      {
+        parent: { x: 0, y: 0, w: 200, h: 160 },
+        child: { x: 10, y: 10 },
+      },
+    );
+    model.parentOf.delete("child");
+    expect(() => resizeComposite(model, "parent", "se", 20, 20)).not.toThrow();
   });
 });

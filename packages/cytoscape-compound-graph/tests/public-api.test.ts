@@ -3,9 +3,18 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_COMPOUND_GRAPH_THEME,
   GraphParentVertex,
+  CompoundGraphScene,
+  buildLayoutModel,
+  flatLayoutFromModel,
+  cloneLayoutModel,
+  layoutModelFromCy,
+  applyLayoutModelToCy,
+  OVERFLOW_NODE_PREFIX,
+  isOverflowNodeId,
+  mergeCompoundGraphStylesheet,
   createCompoundGraphStylesheet,
   leafDomVisualStyle,
-} from "@dgillard/nested-cytoscope-vertex";
+} from "@dgillard/cytoscape-compound-graph";
 import {
   TEST_PARENT,
   captureTapstartHandler,
@@ -253,5 +262,34 @@ describe("public API", () => {
       const after = live.children[childId].absolute;
       expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeLessThan(0.5);
     }
+  });
+
+  it("attachParentDragHandlers ignores drag while child drag is active", () => {
+    const cy = headlessCy(TEST_PARENT.buildElements());
+    TEST_PARENT.initializeFromCy(cy);
+    const invokeTapstart = captureTapstartHandler(cy);
+    TEST_PARENT.attachChildDragHandlers(cy, {});
+    invokeTapstart(
+      syntheticTapstart(cy, "child-a", new MouseEvent("mousedown", { clientX: 100, clientY: 200 })),
+    );
+
+    let changed = false;
+    TEST_PARENT.attachParentDragHandlers(cy, { onChange: () => { changed = true; } });
+    cy.getElementById("parent").trigger("drag");
+    expect(changed).toBe(false);
+
+    window.dispatchEvent(new MouseEvent("mouseup", { clientX: 100, clientY: 200 }));
+  });
+
+  it("exports layout-model, sync, scene, and stylesheet merge helpers", () => {
+    expect(typeof buildLayoutModel).toBe("function");
+    expect(typeof flatLayoutFromModel).toBe("function");
+    expect(typeof cloneLayoutModel).toBe("function");
+    expect(typeof layoutModelFromCy).toBe("function");
+    expect(typeof applyLayoutModelToCy).toBe("function");
+    expect(OVERFLOW_NODE_PREFIX).toBe("__overflow__:");
+    expect(isOverflowNodeId(`${OVERFLOW_NODE_PREFIX}x`)).toBe(true);
+    expect(typeof CompoundGraphScene.fromSpec).toBe("function");
+    expect(mergeCompoundGraphStylesheet([]).length).toBeGreaterThan(0);
   });
 });

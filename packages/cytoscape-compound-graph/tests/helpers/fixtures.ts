@@ -3,7 +3,7 @@ import { vi } from "vitest";
 import {
   GraphParentVertex,
   createCompoundGraphStylesheet,
-} from "@dgillard/nested-cytoscope-vertex";
+} from "@dgillard/cytoscape-compound-graph";
 
 export const TEST_PARENT = GraphParentVertex.create({
   id: "parent",

@@ -1,21 +1,21 @@
-# @dgillard/nested-cytoscope-vertex
+# @dgillard/cytoscape-compound-graph
 
-TypeScript library for nested compound graphs in Cytoscape. The core API is {@link GraphParentVertex}: a compound parent that owns leaf children, keeps an authoritative layout model, and syncs to Cytoscape while preserving child absolute positions during resize.
+TypeScript library for compound graph layout in Cytoscape. Use {@link GraphParentVertex} for a single compound parent, or {@link CompoundGraphScene} for multiple nested compounds on one canvas. Both keep an authoritative layout model and sync to Cytoscape while preserving child absolute positions during resize.
 
 ## Install
 
 ```bash
-npm install @dgillard/nested-cytoscope-vertex cytoscape
+npm install @dgillard/cytoscape-compound-graph cytoscape
 ```
 
-## Quick start
+## Quick start (single compound)
 
 ```ts
 import cytoscape from "cytoscape";
 import {
   GraphParentVertex,
   createCompoundGraphStylesheet,
-} from "@dgillard/nested-cytoscope-vertex";
+} from "@dgillard/cytoscape-compound-graph";
 
 const parent = GraphParentVertex.create({
   id: "wp-invoicing",
@@ -37,6 +37,39 @@ cy.ready(() => {
   parent.initializeFromCy(cy);
   parent.attachChildDragHandlers(cy, { onMove: () => {} });
   parent.attachParentDragHandlers(cy, { onChange: () => {} });
+});
+```
+
+## Multi-compound scene
+
+```ts
+import cytoscape from "cytoscape";
+import {
+  CompoundGraphScene,
+  createCompoundGraphStylesheet,
+} from "@dgillard/cytoscape-compound-graph";
+
+const scene = CompoundGraphScene.fromSpec({
+  nodes: [
+    { id: "a", label: "A", color: "#64748b", kind: "container", compoundWidth: 200, compoundHeight: 160 },
+    { id: "a1", label: "a1", color: "#94a3b8", kind: "leaf", parent: "a", x: 0, y: 0 },
+    { id: "b", label: "B", color: "#64748b", kind: "container", x: 280, y: 0, compoundWidth: 200, compoundHeight: 160 },
+    { id: "b1", label: "b1", color: "#a8b4c4", kind: "leaf", parent: "b", x: 0, y: 0 },
+  ],
+  edges: [],
+});
+
+const cy = cytoscape({
+  container: document.getElementById("graph")!,
+  style: createCompoundGraphStylesheet(),
+  elements: scene.buildElements(),
+  layout: { name: "preset", fit: true, padding: 40 },
+});
+
+cy.ready(() => {
+  scene.initializeFromCy(cy);
+  scene.attachChildDragHandlers(cy, {});
+  scene.attachParentDragHandlers(cy, {});
 });
 ```
 
@@ -64,8 +97,8 @@ npm run attw         # build + TypeScript declaration check
 
 ## Release (manual)
 
-1. Bump `version` in `packages/nested-cytoscope-vertex/package.json`
-2. Update `packages/nested-cytoscope-vertex/CHANGELOG.md`
+1. Bump `version` in `packages/cytoscape-compound-graph/package.json`
+2. Update `packages/cytoscape-compound-graph/CHANGELOG.md`
 3. From repo root:
 
 ```bash
@@ -73,8 +106,9 @@ npm run build
 npm run test:coverage
 npm run docs
 npm run attw
-cd packages/nested-cytoscope-vertex
+cd packages/cytoscape-compound-graph
 npm publish --access public
+npm deprecate @dgillard/nested-cytoscope-vertex "Renamed to @dgillard/cytoscape-compound-graph"
 ```
 
 ## API documentation
@@ -85,7 +119,7 @@ Generated TypeDoc output lives in [`docs/api/`](docs/api/) after `npm run docs`.
 
 | Path | Role |
 |------|------|
-| `packages/nested-cytoscope-vertex/` | Publishable library |
+| `packages/cytoscape-compound-graph/` | Publishable library |
 | `apps/demo/` | Vite + React manual test harness |
 
 ## Relation to bellman-gui

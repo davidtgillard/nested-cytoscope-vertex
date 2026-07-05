@@ -25,7 +25,6 @@ function modelDepth(model: WorkPackageLayoutModel, nodeId: string): number {
  * Cytoscape we must subtract its parent's global position to land back in the
  * model's relative frame.
  */
-/** @internal */
 export function layoutModelFromCy(
   cy: Core,
   inputs: LayoutNodeInput[],
@@ -103,7 +102,6 @@ function applyModelSync(cy: Core, model: WorkPackageLayoutModel): void {
   });
 }
 
-/** @internal */
 export function applyLayoutModelToCy(cy: Core, model: WorkPackageLayoutModel): void {
   applyModelSync(cy, model);
   cy.resize();

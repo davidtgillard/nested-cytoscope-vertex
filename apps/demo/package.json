@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@dgillard/nested-cytoscope-vertex": "*",
+    "@dgillard/cytoscape-compound-graph": "*",
     "cytoscape": "^3.33.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

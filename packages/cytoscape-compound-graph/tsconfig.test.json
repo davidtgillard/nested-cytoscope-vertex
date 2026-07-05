@@ -6,7 +6,7 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "paths": {
-      "@dgillard/nested-cytoscope-vertex": ["./src/index.ts"]
+      "@dgillard/cytoscape-compound-graph": ["./src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],

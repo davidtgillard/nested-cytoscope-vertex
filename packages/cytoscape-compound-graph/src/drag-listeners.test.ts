@@ -34,6 +34,10 @@ describe("drag-listeners", () => {
       expect(clientPointFromDomEvent(event)).toEqual({ clientX: 9, clientY: 8 });
     });
 
+    it("returns null for unsupported event shapes", () => {
+      expect(clientPointFromDomEvent({} as TouchEvent)).toBeNull();
+    });
+
     it("returns null when touch event has no touches", () => {
       const event = { touches: [], changedTouches: [] } as unknown as TouchEvent;
       expect(clientPointFromDomEvent(event)).toBeNull();

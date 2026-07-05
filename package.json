@@ -1,5 +1,5 @@
 {
-  "name": "nested-cytoscope-vertex-monorepo",
+  "name": "cytoscape-compound-graph-monorepo",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,12 +8,12 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @dgillard/nested-cytoscope-vertex && npm run build -w demo",
+    "build": "npm run build -w @dgillard/cytoscape-compound-graph && npm run build -w demo",
     "dev": "npm run dev -w demo",
     "preview": "npm run preview -w demo",
-    "test": "npm run test -w @dgillard/nested-cytoscope-vertex",
-    "test:coverage": "npm run test:coverage -w @dgillard/nested-cytoscope-vertex",
-    "docs": "npm run docs -w @dgillard/nested-cytoscope-vertex",
-    "attw": "npm run build -w @dgillard/nested-cytoscope-vertex && npm run attw -w @dgillard/nested-cytoscope-vertex"
+    "test": "npm run test -w @dgillard/cytoscape-compound-graph",
+    "test:coverage": "npm run test:coverage -w @dgillard/cytoscape-compound-graph",
+    "docs": "npm run docs -w @dgillard/cytoscape-compound-graph",
+    "attw": "npm run build -w @dgillard/cytoscape-compound-graph && npm run attw -w @dgillard/cytoscape-compound-graph"
   }
 }
