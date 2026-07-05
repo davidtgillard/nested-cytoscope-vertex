@@ -4,7 +4,14 @@ import {
   COMPOUND_PADDING,
   NODE_OVERLAP_PADDING,
 } from "./cytoscape-theme";
-import { boxesOverlap, detectCollision, resolvePosition, type Point, type VisualBox } from "./collision";
+import {
+  boxesOverlap,
+  clampBoxEdgesToBounds,
+  detectCollision,
+  resolvePosition,
+  type Point,
+  type VisualBox,
+} from "./collision";
 
 interface NodePosition {
   x: number;
@@ -582,10 +589,20 @@ function resolveResizeBoxAgainstObstacles(
   return best;
 }
 
+export interface ViewportClampOptions {
+  /** Graph-space bounds the compound outer box must stay inside (e.g. visible viewport). */
+  viewportBounds?: VisualBox | null;
+}
+
+export type MoveCompositeOptions = ViewportClampOptions;
+
+export type ResizeCompositeOptions = ViewportClampOptions;
+
 export function moveComposite(
   model: WorkPackageLayoutModel,
   compositeId: string,
   newCenter: { x: number; y: number },
+  options?: MoveCompositeOptions,
 ): WorkPackageLayoutModel {
   const next = cloneLayoutModel(model);
   const node = next.nodes.get(compositeId);
@@ -610,6 +627,7 @@ export function moveComposite(
   const resolved = resolvePosition({
     from: startCenter,
     to: newCenter,
+    bounds: options?.viewportBounds ?? null,
     obstacles: obstacleBoxesFor(next, compositeId),
     boxForCenter,
   });
@@ -666,6 +684,7 @@ export function resizeComposite(
   dxModel: number,
   dyModel: number,
   constraints?: ResizeChildConstraints,
+  options?: ResizeCompositeOptions,
 ): WorkPackageLayoutModel {
   const next = cloneLayoutModel(model);
   const node = next.nodes.get(compositeId);
@@ -691,11 +710,21 @@ export function resizeComposite(
     dyModel,
     resolvedConstraints,
   );
-  const clampedOuter = resolveResizeBoxAgainstObstacles(
+  let clampedOuter = resolveResizeBoxAgainstObstacles(
     startOuter,
     proposedOuter,
     obstacleBoxesFor(next, compositeId),
   );
+
+  const viewportBounds = options?.viewportBounds;
+  if (viewportBounds) {
+    const viewportClamped = clampBoxEdgesToBounds(clampedOuter, viewportBounds);
+    const width = viewportClamped.x2 - viewportClamped.x1;
+    const height = viewportClamped.y2 - viewportClamped.y1;
+    if (width > 0 && height > 0) {
+      clampedOuter = viewportClamped;
+    }
+  }
 
   const savedAbsolute = new Map<string, { x: number; y: number }>();
   for (const descendantId of descendantIds(next, compositeId)) {

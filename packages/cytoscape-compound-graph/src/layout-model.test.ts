@@ -364,6 +364,34 @@ describe("layout-model move and resize branches", () => {
     expect(moveComposite(model, "leaf", { x: 10, y: 10 })).toEqual(model);
   });
 
+  it("moveComposite clamps the outer box inside viewport bounds", () => {
+    const model = buildLayoutModel(
+      [{ id: "parent", isCompound: true }],
+      { parent: { x: 0, y: 0, w: 100, h: 80 } },
+    );
+    const viewportBounds = { x1: 0, y1: 0, x2: 200, y2: 200 };
+    const moved = moveComposite(model, "parent", { x: 500, y: 500 }, { viewportBounds });
+    const outer = compositeOuterBox(moved, "parent")!;
+    expect(outer.x1).toBeGreaterThanOrEqual(viewportBounds.x1);
+    expect(outer.y1).toBeGreaterThanOrEqual(viewportBounds.y1);
+    expect(outer.x2).toBeLessThanOrEqual(viewportBounds.x2);
+    expect(outer.y2).toBeLessThanOrEqual(viewportBounds.y2);
+  });
+
+  it("resizeComposite clamps the outer box inside viewport bounds", () => {
+    const model = buildLayoutModel(
+      [{ id: "parent", isCompound: true }],
+      { parent: { x: 0, y: 0, w: 100, h: 80 } },
+    );
+    const viewportBounds = { x1: 0, y1: 0, x2: 150, y2: 150 };
+    const resized = resizeComposite(model, "parent", "se", 500, 500, undefined, { viewportBounds });
+    const outer = compositeOuterBox(resized, "parent")!;
+    expect(outer.x1).toBeGreaterThanOrEqual(viewportBounds.x1);
+    expect(outer.y1).toBeGreaterThanOrEqual(viewportBounds.y1);
+    expect(outer.x2).toBeLessThanOrEqual(viewportBounds.x2);
+    expect(outer.y2).toBeLessThanOrEqual(viewportBounds.y2);
+  });
+
   it("moveChild no-ops when parent metadata is missing", () => {
     const model = buildLayoutModel([{ id: "orphan" }], { orphan: { x: 0, y: 0 } });
     expect(moveChild(model, "orphan", { x: 50, y: 50 })).toEqual(model);

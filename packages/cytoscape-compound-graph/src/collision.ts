@@ -50,6 +50,16 @@ export function containmentShift(box: VisualBox, bounds: VisualBox): { dx: numbe
   return { dx, dy };
 }
 
+/** Intersects `box` with `bounds` by clamping each edge independently. */
+export function clampBoxEdgesToBounds(box: VisualBox, bounds: VisualBox): VisualBox {
+  return {
+    x1: Math.max(box.x1, bounds.x1),
+    y1: Math.max(box.y1, bounds.y1),
+    x2: Math.min(box.x2, bounds.x2),
+    y2: Math.min(box.y2, bounds.y2),
+  };
+}
+
 function keepInside(
   center: Point,
   bounds: VisualBox | null,

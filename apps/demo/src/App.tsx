@@ -21,6 +21,8 @@ const CORNERS: ResizeCorner[] = ["nw", "ne", "sw", "se"];
 const HANDLE_SIZE = 12;
 const HANDLE_GAP = 8;
 const RESIZE_MOVE_THRESHOLD_PX = 2;
+/** Temporary diagnostics for viewport clipping — remove when fixed. */
+const DEBUG_VIEWPORT_BOUNDS = true;
 
 const CORNER_CURSOR: Record<ResizeCorner, string> = {
   nw: "nwse-resize",
@@ -319,7 +321,14 @@ export function App() {
 
       const dxModel = (clientX - active.startClientX) / active.zoom;
       const dyModel = (clientY - active.startClientY) / active.zoom;
-      compound.resizeFromCorner(active.corner, dxModel, dyModel, active.startModel, active.constraints);
+      compound.resizeFromCorner(
+        active.corner,
+        dxModel,
+        dyModel,
+        active.startModel,
+        active.constraints,
+        cy,
+      );
       compound.syncToCy(cy);
       recomputeHandles();
       refreshOverlays();
@@ -367,40 +376,59 @@ export function App() {
           <button type="button" className="reset-button" onClick={() => setGraphKey((value) => value + 1)}>
             Reset graph
           </button>
+          {DEBUG_VIEWPORT_BOUNDS ? (
+            <div className="debug-bounds-legend" aria-hidden="true">
+              <span className="debug-bounds-legend__item debug-bounds-legend__item--canvas">Canvas viewport</span>
+            </div>
+          ) : null}
         </div>
 
         <div className="graph-shell">
+          {DEBUG_VIEWPORT_BOUNDS ? (
+            <div className="debug-bounds debug-bounds--canvas" aria-hidden="true">
+              <span className="debug-bounds__label">canvas viewport</span>
+            </div>
+          ) : null}
           <div ref={childLabelProbeRef} className="child-drag-label style-probe">
             {probeChild?.label ?? "child"}
           </div>
           <div ref={childNodeProbeRef} className="child-drag-node style-probe" />
           <div ref={childSelectedNodeProbeRef} className="child-drag-node is-selected style-probe" />
+          {parentDragVisual ? (
+            <>
+              <div
+                className={`compound-parent-overlay${parentDragVisual.selected ? " is-selected" : ""}`}
+                style={{
+                  left: parentDragVisual.left,
+                  top: parentDragVisual.top,
+                  width: parentDragVisual.width,
+                  height: parentDragVisual.height,
+                }}
+              />
+              <div
+                className="compound-parent-label-anchor"
+                style={{
+                  left: parentDragVisual.left + parentDragVisual.width / 2,
+                  top: parentDragVisual.top,
+                }}
+              >
+                <div
+                  className="compound-parent-label"
+                  style={
+                    {
+                      "--compound-parent-label-zoom-scale": parentDragVisual.zoomScale,
+                    } as CSSProperties
+                  }
+                >
+                  {parentDragVisual.label}
+                </div>
+              </div>
+            </>
+          ) : null}
           <div
             className={`graph-viewport${childDragVisual ? " graph-viewport-dragging" : ""}`}
             ref={containerRef}
           />
-          {parentDragVisual ? (
-            <div
-              className={`compound-parent-overlay${parentDragVisual.selected ? " is-selected" : ""}`}
-              style={{
-                left: parentDragVisual.left,
-                top: parentDragVisual.top,
-                width: parentDragVisual.width,
-                height: parentDragVisual.height,
-              }}
-            >
-              <div
-                className="compound-parent-label"
-                style={
-                  {
-                    "--compound-parent-label-zoom-scale": parentDragVisual.zoomScale,
-                  } as CSSProperties
-                }
-              >
-                {parentDragVisual.label}
-              </div>
-            </div>
-          ) : null}
           {childDragVisual ? (
             <div className="child-drag-layer">
               <div

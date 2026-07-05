@@ -29,6 +29,13 @@ export interface CompoundGraphTheme {
    * sibling collisions during drag ({@link GraphParentVertex.setNodeOverlapPadding}).
    */
   nodeOverlapPadding: number;
+  /**
+   * When true, compound parent drag is clamped so the outer box stays inside the
+   * Cytoscape container's visible pixel bounds ({@link GraphParentVertex.setClampParentToViewport}).
+   */
+  clampParentToViewport: boolean;
+  /** Screen-pixel inset from the container edge used by viewport clamping during parent drag. */
+  viewportPaddingPx: number;
   compoundMinSize: { width: number; height: number };
   edgeStyle: {
     width: number;
@@ -53,6 +60,8 @@ export const DEFAULT_COMPOUND_GRAPH_THEME: CompoundGraphTheme = {
   leafSelection: { outlineWidth: 3, outlineColor: "#38bdf8" },
   childEdgeClearancePx: -5,
   nodeOverlapPadding: 8,
+  clampParentToViewport: true,
+  viewportPaddingPx: 8,
   compoundMinSize: { width: 80, height: 80 },
   edgeStyle: {
     width: 2,
@@ -125,8 +134,10 @@ export function leafDomVisualStyle(partial?: Partial<CompoundGraphTheme>): LeafD
 
 /**
  * Builds the Cytoscape stylesheet for container + leaf nodes. The container node is a
- * plain, explicitly-sized rectangle (not a native compound parent); visible borders and
- * labels are drawn via DOM overlays driven by {@link GraphParentVertex}.
+ * plain, explicitly-sized rectangle (not a native compound parent); its border renders
+ * labels are drawn via DOM overlays driven by {@link GraphParentVertex.parentDragVisual}.
+ * Draw the compound border in that same DOM layer behind the Cytoscape viewport so leaf
+ * nodes on the canvas are never covered.
  */
 export function createCompoundGraphStylesheet(
   partial?: Partial<CompoundGraphTheme>,
@@ -139,6 +150,7 @@ export function createCompoundGraphStylesheet(
       style: {
         label: "data(label)",
         color: leafLabel.color,
+        "z-index-compare": "manual",
       },
     },
     {
@@ -166,6 +178,7 @@ export function createCompoundGraphStylesheet(
       selector: "node[kind = 'container']",
       style: {
         shape: "round-rectangle",
+        opacity: 0,
         "background-opacity": 0,
         "border-width": 0,
         "border-opacity": 0,
@@ -226,6 +239,12 @@ export const CHILD_EDGE_CLEARANCE_PX = DEFAULT_COMPOUND_GRAPH_THEME.childEdgeCle
 
 /** @internal */
 export const NODE_OVERLAP_PADDING = DEFAULT_COMPOUND_GRAPH_THEME.nodeOverlapPadding;
+
+/** @internal */
+export const CLAMP_PARENT_TO_VIEWPORT = DEFAULT_COMPOUND_GRAPH_THEME.clampParentToViewport;
+
+/** @internal */
+export const VIEWPORT_PADDING_PX = DEFAULT_COMPOUND_GRAPH_THEME.viewportPaddingPx;
 
 /** @internal */
 export const LEAF_LABEL_FONT_SIZE = DEFAULT_COMPOUND_GRAPH_THEME.leafLabel.fontSize;

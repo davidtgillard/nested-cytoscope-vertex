@@ -15,6 +15,8 @@ import {
   LEAF_SELECTION_OUTLINE_COLOR,
   LEAF_SELECTION_OUTLINE_WIDTH,
   NODE_OVERLAP_PADDING,
+  CLAMP_PARENT_TO_VIEWPORT,
+  VIEWPORT_PADDING_PX,
 } from "./cytoscape-theme";
 import {
   applySubtreePositionsToCy,
@@ -24,6 +26,7 @@ import {
   pinContainerToModel,
   renderedContainerBoxFromModel,
   restoreLeafVisibility,
+  viewportBoundsInGraphSpace,
 } from "./compound-graph-core";
 import {
   compoundAbsolutePosition,
@@ -47,6 +50,7 @@ import {
   resizeLooseEdgesFromOuter,
   type LayoutModelBuildOptions,
   type LayoutNodeInput,
+  type MoveCompositeOptions,
   type ResizeChildConstraints,
   type ResizeCorner,
   type WorkPackageLayoutModel,
@@ -166,6 +170,8 @@ export class GraphParentVertex {
       }
     | null = null;
   private nodeOverlapPadding = NODE_OVERLAP_PADDING;
+  private clampParentToViewport = CLAMP_PARENT_TO_VIEWPORT;
+  private viewportPaddingPx = VIEWPORT_PADDING_PX;
 
   private constructor(
     readonly id: string,
@@ -173,9 +179,13 @@ export class GraphParentVertex {
     readonly color: string,
     childSpecs: GraphChildVertexSpec[],
     nodeOverlapPadding: number,
+    clampParentToViewport: boolean,
+    viewportPaddingPx: number,
   ) {
     this.children = childSpecs.map((spec) => GraphChildVertex.attach(spec));
     this.nodeOverlapPadding = nodeOverlapPadding;
+    this.clampParentToViewport = clampParentToViewport;
+    this.viewportPaddingPx = viewportPaddingPx;
   }
 
   /** Creates a compound parent and its owned leaf children. */
@@ -192,6 +202,13 @@ export class GraphParentVertex {
      * during drag. Defaults to {@link DEFAULT_COMPOUND_GRAPH_THEME.nodeOverlapPadding}.
      */
     nodeOverlapPadding?: number;
+    /**
+     * When true (default), parent drag keeps the compound outer box inside the visible
+     * Cytoscape container. See {@link GraphParentVertex.setClampParentToViewport}.
+     */
+    clampParentToViewport?: boolean;
+    /** Screen-pixel inset from the container edge during viewport clamping. */
+    viewportPaddingPx?: number;
   }): GraphParentVertex {
     return new GraphParentVertex(
       spec.id,
@@ -199,6 +216,8 @@ export class GraphParentVertex {
       spec.color,
       spec.children,
       spec.nodeOverlapPadding ?? NODE_OVERLAP_PADDING,
+      spec.clampParentToViewport ?? CLAMP_PARENT_TO_VIEWPORT,
+      spec.viewportPaddingPx ?? VIEWPORT_PADDING_PX,
     );
   }
 
@@ -248,6 +267,20 @@ export class GraphParentVertex {
     if (this.model) {
       this.model.nodeOverlapPadding = modelUnits;
     }
+  }
+
+  /**
+   * Enables or disables clamping compound parent drag to the visible Cytoscape container.
+   */
+  setClampParentToViewport(enabled: boolean): void {
+    this.clampParentToViewport = enabled;
+  }
+
+  /**
+   * Sets the screen-pixel padding inset used when {@link setClampParentToViewport} is enabled.
+   */
+  setViewportPaddingPx(pixels: number): void {
+    this.viewportPaddingPx = pixels;
   }
 
   /** Cytoscape element definitions for the container node and its leaf children. */
@@ -431,8 +464,17 @@ export class GraphParentVertex {
     dyModel: number,
     startModel: WorkPackageLayoutModel,
     constraints: ResizeChildConstraints,
+    cy?: Core,
   ): void {
-    this.model = resizeComposite(startModel, this.id, corner, dxModel, dyModel, constraints);
+    this.model = resizeComposite(
+      startModel,
+      this.id,
+      corner,
+      dxModel,
+      dyModel,
+      constraints,
+      this.viewportClampOptions(cy),
+    );
   }
 
   /** Writes the layout model back to Cytoscape and reconfigures drag behaviour. */
@@ -654,10 +696,20 @@ export class GraphParentVertex {
     if (cyParent.empty()) {
       return;
     }
-    this.model = moveComposite(model, this.id, cyParent.position());
+    this.model = moveComposite(model, this.id, cyParent.position(), this.viewportClampOptions(cy));
     if (this.model) {
+      pinContainerToModel(cy, this.model, this.id);
       applySubtreePositionsToCy(cy, this.model, this.id);
     }
+  }
+
+  private viewportClampOptions(cy?: Core): MoveCompositeOptions | undefined {
+    if (!this.clampParentToViewport || !cy) {
+      return undefined;
+    }
+    return {
+      viewportBounds: viewportBoundsInGraphSpace(cy, this.viewportPaddingPx),
+    };
   }
 
   private measureFromCy(cy: Core): void {

@@ -7,6 +7,7 @@ import {
   pinContainerToModel,
   renderedContainerBoxFromModel,
   restoreLeafVisibility,
+  viewportBoundsInGraphSpace,
 } from "./compound-graph-core";
 import { buildLayoutModel } from "./layout-model";
 import { createCompoundGraphStylesheet } from "./cytoscape-theme";
@@ -71,5 +72,36 @@ describe("compound-graph-core", () => {
     });
     expect(() => enableContainerDragging(cy, ["missing"])).not.toThrow();
     expect(() => restoreLeafVisibility(cy, ["missing"])).not.toThrow();
+  });
+
+  it("viewportBoundsInGraphSpace inverts pan and zoom into graph coordinates", () => {
+    const cy = {
+      width: () => 400,
+      height: () => 300,
+      pan: () => ({ x: 50, y: 40 }),
+      zoom: () => 2,
+    } as cytoscape.Core;
+    expect(viewportBoundsInGraphSpace(cy, 0)).toEqual({
+      x1: -25,
+      y1: -20,
+      x2: 175,
+      y2: 130,
+    });
+    expect(viewportBoundsInGraphSpace(cy, 10)).toEqual({
+      x1: -20,
+      y1: -15,
+      x2: 170,
+      y2: 125,
+    });
+  });
+
+  it("viewportBoundsInGraphSpace returns null for invalid dimensions", () => {
+    const cy = {
+      width: () => 0,
+      height: () => 300,
+      pan: () => ({ x: 0, y: 0 }),
+      zoom: () => 1,
+    } as cytoscape.Core;
+    expect(viewportBoundsInGraphSpace(cy, 8)).toBeNull();
   });
 });

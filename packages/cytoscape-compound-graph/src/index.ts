@@ -87,6 +87,8 @@ export {
   type CompoundGraphTheme,
   type LeafDomVisualStyle,
   DEFAULT_COMPOUND_GRAPH_THEME,
+  CLAMP_PARENT_TO_VIEWPORT,
+  VIEWPORT_PADDING_PX,
   createCompoundGraphStylesheet,
   mergeCompoundGraphStylesheet,
   leafDomVisualStyle,

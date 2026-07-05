@@ -3,10 +3,11 @@ import cytoscape, { type EventObject } from "cytoscape";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GraphParentVertex, createCompoundGraphStylesheet } from "./index";
 import { snapshotDelta } from "./cytoscape-utils";
-import { absoluteCenter } from "./layout-model";
+import { absoluteCenter, compositeOuterBox } from "./layout-model";
 import {
   applySubtreePositionsToCy,
   pinContainerToModel,
+  viewportBoundsInGraphSpace,
 } from "./compound-graph-core";
 
 const TEST_PARENT = GraphParentVertex.create({
@@ -409,6 +410,32 @@ describe("compound-graph internals", () => {
 
     expect(DEMO_COMPOUND.getModel()?.nodes.get("wp-invoicing")?.center.x).toBeCloseTo(55, 3);
     expect(DEMO_COMPOUND.getModel()?.nodes.get("wp-invoicing")?.center.y).toBeCloseTo(-25, 3);
+  });
+
+  it("syncParentDragFromCy clamps parent outer box to the visible viewport", () => {
+    const cy = headlessCy(sizedDemoElements());
+    vi.spyOn(cy, "width").mockReturnValue(600);
+    vi.spyOn(cy, "height").mockReturnValue(500);
+    cy.zoom(1);
+    cy.pan({ x: 0, y: 0 });
+    const compound = asInternal(DEMO_COMPOUND);
+    DEMO_COMPOUND.initializeFromCy(cy);
+    cy.getElementById("wp-invoicing").position({ x: 0, y: 5000 });
+    compound.syncParentDragFromCy(cy);
+    const model = DEMO_COMPOUND.getModel();
+    expect(model).not.toBeNull();
+    const outer = compositeOuterBox(model!, "wp-invoicing")!;
+    const bounds = viewportBoundsInGraphSpace(cy, 8);
+    expect(bounds).not.toBeNull();
+    expect(outer.x1).toBeGreaterThanOrEqual(bounds!.x1);
+    expect(outer.y1).toBeGreaterThanOrEqual(bounds!.y1);
+    expect(outer.x2).toBeLessThanOrEqual(bounds!.x2);
+    expect(outer.y2).toBeLessThanOrEqual(bounds!.y2);
+
+    DEMO_COMPOUND.setClampParentToViewport(false);
+    cy.getElementById("wp-invoicing").position({ x: 0, y: 5000 });
+    compound.syncParentDragFromCy(cy);
+    expect(DEMO_COMPOUND.getModel()?.nodes.get("wp-invoicing")?.center.y).toBeCloseTo(5000, 3);
   });
 
   it("beginChildDrag keeps current model state instead of importing hidden cy drift", () => {

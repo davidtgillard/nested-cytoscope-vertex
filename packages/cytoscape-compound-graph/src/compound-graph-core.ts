@@ -1,4 +1,5 @@
 import type { Core } from "cytoscape";
+import type { VisualBox } from "./collision";
 import {
   INITIAL_COMPOUND_SLACK,
   compoundSizeForContent,
@@ -41,6 +42,37 @@ export function renderedContainerBoxFromModel(
     return null;
   }
   return renderedBoxRect(cy, box);
+}
+
+/**
+ * Visible Cytoscape container bounds converted to graph coordinates for viewport
+ * clamping during compound drag (inverse of {@link renderedBoxRect}).
+ */
+export function viewportBoundsInGraphSpace(cy: Core, paddingPx: number): VisualBox | null {
+  const zoom = cy.zoom();
+  if (!(zoom > 0)) {
+    return null;
+  }
+  const pan = cy.pan();
+  const width = cy.width();
+  const height = cy.height();
+  if (!(width > 0 && height > 0)) {
+    return null;
+  }
+  const pad = Math.max(0, paddingPx);
+  const renderedX1 = pad;
+  const renderedY1 = pad;
+  const renderedX2 = width - pad;
+  const renderedY2 = height - pad;
+  if (renderedX2 <= renderedX1 || renderedY2 <= renderedY1) {
+    return null;
+  }
+  return {
+    x1: (renderedX1 - pan.x) / zoom,
+    y1: (renderedY1 - pan.y) / zoom,
+    x2: (renderedX2 - pan.x) / zoom,
+    y2: (renderedY2 - pan.y) / zoom,
+  };
 }
 
 export function measureContainerFromCy(cy: Core, containerId: string, childIds: string[]): void {

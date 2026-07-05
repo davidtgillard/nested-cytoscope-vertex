@@ -15,6 +15,8 @@ import {
   LEAF_SELECTION_OUTLINE_COLOR,
   LEAF_SELECTION_OUTLINE_WIDTH,
   NODE_OVERLAP_PADDING,
+  CLAMP_PARENT_TO_VIEWPORT,
+  VIEWPORT_PADDING_PX,
 } from "./cytoscape-theme";
 import {
   applySubtreePositionsToCy,
@@ -24,6 +26,7 @@ import {
   pinContainerToModel,
   renderedContainerBoxFromModel,
   restoreLeafVisibility,
+  viewportBoundsInGraphSpace,
 } from "./compound-graph-core";
 import type { ChildDragVisual, ParentDragVisual } from "./compound-graph";
 import {
@@ -48,6 +51,7 @@ import {
   resizeLooseEdgesFromOuter,
   type LayoutModelBuildOptions,
   type LayoutNodeInput,
+  type MoveCompositeOptions,
   type ResizeChildConstraints,
   type ResizeCorner,
   type WorkPackageLayoutModel,
@@ -95,6 +99,8 @@ export interface CompoundGraphSceneSpec {
   nodes: SceneNodeSpec[];
   edges: SceneEdgeSpec[];
   nodeOverlapPadding?: number;
+  clampParentToViewport?: boolean;
+  viewportPaddingPx?: number;
 }
 
 /**
@@ -119,15 +125,21 @@ export class CompoundGraphScene {
       }
     | null = null;
   private nodeOverlapPadding: number;
+  private clampParentToViewport: boolean;
+  private viewportPaddingPx: number;
 
   private constructor(
     nodeSpecs: Map<string, SceneNodeSpec>,
     edges: SceneEdgeSpec[],
     nodeOverlapPadding: number,
+    clampParentToViewport: boolean,
+    viewportPaddingPx: number,
   ) {
     this.nodeSpecs = nodeSpecs;
     this.edges = edges;
     this.nodeOverlapPadding = nodeOverlapPadding;
+    this.clampParentToViewport = clampParentToViewport;
+    this.viewportPaddingPx = viewportPaddingPx;
   }
 
   static fromSpec(spec: CompoundGraphSceneSpec): CompoundGraphScene {
@@ -142,11 +154,21 @@ export class CompoundGraphScene {
       nodeSpecs,
       spec.edges,
       spec.nodeOverlapPadding ?? NODE_OVERLAP_PADDING,
+      spec.clampParentToViewport ?? CLAMP_PARENT_TO_VIEWPORT,
+      spec.viewportPaddingPx ?? VIEWPORT_PADDING_PX,
     );
   }
 
   getModel(): WorkPackageLayoutModel | null {
     return this.model;
+  }
+
+  setClampParentToViewport(enabled: boolean): void {
+    this.clampParentToViewport = enabled;
+  }
+
+  setViewportPaddingPx(pixels: number): void {
+    this.viewportPaddingPx = pixels;
   }
 
   private get layoutInputs(): LayoutNodeInput[] {
@@ -442,8 +464,17 @@ export class CompoundGraphScene {
     dyModel: number,
     startModel: WorkPackageLayoutModel,
     constraints: ResizeChildConstraints,
+    cy?: Core,
   ): void {
-    this.model = resizeComposite(startModel, containerId, corner, dxModel, dyModel, constraints);
+    this.model = resizeComposite(
+      startModel,
+      containerId,
+      corner,
+      dxModel,
+      dyModel,
+      constraints,
+      this.viewportClampOptions(cy),
+    );
   }
 
   syncToCy(cy: Core): void {
@@ -698,9 +729,24 @@ export class CompoundGraphScene {
     if (cyParent.empty()) {
       return;
     }
-    this.model = moveComposite(model, containerId, cyParent.position());
+    this.model = moveComposite(
+      model,
+      containerId,
+      cyParent.position(),
+      this.viewportClampOptions(cy),
+    );
     if (this.model) {
+      pinContainerToModel(cy, this.model, containerId);
       applySubtreePositionsToCy(cy, this.model, containerId);
     }
+  }
+
+  private viewportClampOptions(cy?: Core): MoveCompositeOptions | undefined {
+    if (!this.clampParentToViewport || !cy) {
+      return undefined;
+    }
+    return {
+      viewportBounds: viewportBoundsInGraphSpace(cy, this.viewportPaddingPx),
+    };
   }
 }
